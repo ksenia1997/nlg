@@ -16,8 +16,10 @@ import random
 import torch.optim as optim
 import math
 
+SEED = 5
 JOIN_TOKEN = " "
-TEXT = Field(sequential=True, tokenize=lambda s: str.split(s, sep=JOIN_TOKEN), lower=True)
+TEXT = Field(sequential=True, tokenize=lambda s: str.split(s, sep=JOIN_TOKEN), init_token='<sos>', eos_token='<eos>',
+             lower=True)
 N_EPOCHS = 10
 CLIP = 10
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -170,12 +172,9 @@ class Decoder(nn.Module):
         self.dropout = nn.Dropout(config["dropout_rate"])
 
     def forward(self, input, hidden, cell):
-        print("input: ", input.size())
         input = input.unsqueeze(0)
-        print("input dec: ", input.size())
         embedded = self.embedder(input)
         embedded = self.dropout(embedded)
-        print("embedded: ", embedded.size())
         output, (hidden, cell) = self.lstm(embedded, (hidden, cell))
         predicted = self.linear(output.squeeze(0))
         return predicted, hidden, cell
@@ -189,15 +188,19 @@ class Seq2Seq(nn.Module):
 
     def forward(self, src, trg, teacher_forcing_ratio=0.5):
         batch_size = trg.shape[1]
-        print("seq2seq bs: ", batch_size)
         max_len = trg.shape[0]
         trg_vocab_size = self.decoder.output_dim
+        print("seq2seq bs: ", batch_size)
+        print("seq2seq ml: ", max_len)
+        print("tvz: ", trg_vocab_size)
 
         outputs = torch.zeros(max_len, batch_size, trg_vocab_size)
         hidden, cell = self.encoder(src)
-        print("hidden ", hidden.size())
-        print("src ", src.size())
         input = trg[0, :]
+        print("input: ", input.size())
+        print("hidden ", hidden.size())
+        print("cell: ", cell.size())
+        print("src ", src.size())
         for t in range(1, max_len):
             output, hidden, cell = self.decoder(input, hidden, cell)
             outputs[t] = output
@@ -287,13 +290,18 @@ def evaluate(model, iterator, criterion):
 
 
 def main():
-    np.random.seed(0)
+    random.seed(SEED)
+    torch.manual_seed(SEED)
+    torch.backends.cudnn.deterministic = True
 
     # We will use this special token to join the pre-tokenized data
     lines = read_text()
-    print(len(lines))
-    print(tokenize_and_join(lines[0]))
+    tokenized_lines = []
+    for line in lines:
+        tokenized_lines.append(tokenize_and_join(line))
 
+    print(tokenize_and_join(lines[0]))
+    lines = tokenized_lines
     create_data('train.csv', lines, 0, int(len(lines) * 2 / 3))
     create_data('valid.csv', lines, int(len(lines) * 2 / 3), len(lines))
     create_data('test.csv', lines, int(len(lines) / 5), int(len(lines) / 5 * 4))
