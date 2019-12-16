@@ -141,15 +141,11 @@ class Encoder(nn.Module):
             config["embedding_dim"],
             config["hidden_dim"],
             config["num_layers"],
-            dropout=float(config['dropout_rate']),
-            batch_first=True,
-            bidirectional=True)
+            dropout=float(config['dropout_rate']))
 
         self.dropout = nn.Dropout(config["dropout_rate"])
 
     def forward(self, batch):
-        # batch shape is [sentence_length, batch_size]
-        # embeds_q shape is [sentence_length, batch_size, embedding_size]
         embeds_q = self.embedder(batch)
         enc_q = self.dropout(embeds_q)
         outputs, (hidden, cell) = self.lstm(enc_q)
@@ -165,9 +161,7 @@ class Decoder(nn.Module):
             config["embedding_dim"],
             config["hidden_dim"],
             config["num_layers"],
-            dropout=float(config['dropout_rate']),
-            batch_first=True,
-            bidirectional=True)
+            dropout=float(config['dropout_rate']))
         self.linear = nn.Linear(config["hidden_dim"], self.output_dim)
         self.dropout = nn.Dropout(config["dropout_rate"])
 
@@ -176,6 +170,7 @@ class Decoder(nn.Module):
         embedded = self.embedder(input)
         embedded = self.dropout(embedded)
         output, (hidden, cell) = self.lstm(embedded, (hidden, cell))
+
         predicted = self.linear(output.squeeze(0))
         return predicted, hidden, cell
 
@@ -190,17 +185,10 @@ class Seq2Seq(nn.Module):
         batch_size = trg.shape[1]
         max_len = trg.shape[0]
         trg_vocab_size = self.decoder.output_dim
-        print("seq2seq bs: ", batch_size)
-        print("seq2seq ml: ", max_len)
-        print("tvz: ", trg_vocab_size)
-
         outputs = torch.zeros(max_len, batch_size, trg_vocab_size)
         hidden, cell = self.encoder(src)
         input = trg[0, :]
-        print("input: ", input.size())
-        print("hidden ", hidden.size())
-        print("cell: ", cell.size())
-        print("src ", src.size())
+
         for t in range(1, max_len):
             output, hidden, cell = self.decoder(input, hidden, cell)
             outputs[t] = output
@@ -223,10 +211,11 @@ def train(model, iterator, optimizer, criterion, clip):
         epoch_loss: Average loss of the epoch.
     '''
     #  some layers have different behavior during train/and evaluation (like BatchNorm, Dropout) so setting it matters.
+    print("train")
     model.train()
     # loss
     epoch_loss = 0
-
+    print("train iterator")
     for i, batch in enumerate(iterator):
         src = batch.question
         trg = batch.answer
@@ -295,20 +284,20 @@ def main():
     torch.backends.cudnn.deterministic = True
 
     # We will use this special token to join the pre-tokenized data
-    lines = read_text()
-    tokenized_lines = []
-    for line in lines:
-        tokenized_lines.append(tokenize_and_join(line))
+    # lines = read_text()
+    # tokenized_lines = []
+    # for line in lines:
+    #     tokenized_lines.append(tokenize_and_join(line))
+    #
+    # print(tokenize_and_join(lines[0]))
+    # lines = tokenized_lines
+    # create_data('train.csv', lines, 0, int(len(lines) * 2 / 3))
+    # create_data('valid.csv', lines, int(len(lines) * 2 / 3), len(lines))
+    # create_data('test.csv', lines, int(len(lines) / 5), int(len(lines) / 5 * 4))
 
-    print(tokenize_and_join(lines[0]))
-    lines = tokenized_lines
-    create_data('train.csv', lines, 0, int(len(lines) * 2 / 3))
-    create_data('valid.csv', lines, int(len(lines) * 2 / 3), len(lines))
-    create_data('test.csv', lines, int(len(lines) / 5), int(len(lines) / 5 * 4))
-
-    config = {"train_batch_size": 80, "embedding_size": 100, "optimize_embeddings": False,
-              "scale_emb_grad_by_freq": False, "embedding_dim": 100, "hidden_dim": 100, "dropout_rate": 0.5,
-              "num_layers": 1}
+    config = {"train_batch_size": 80, "optimize_embeddings": False,
+              "scale_emb_grad_by_freq": False, "embedding_dim": 100, "hidden_dim": 200, "dropout_rate": 0.5,
+              "num_layers": 2}
 
     data_fields = [
         ('question', TEXT),
@@ -325,7 +314,7 @@ def main():
         # if your csv header has a header, make sure to pass this to ensure it doesn't get proceesed as data!
         fields=data_fields)
 
-    fields["question"].build_vocab(trn, vectors=GloVe(name='6B', dim=config["embedding_size"]))
+    fields["question"].build_vocab(trn, vectors=GloVe(name='6B', dim=config["embedding_dim"]))
     vocab = fields["question"].vocab
 
     train_iter = BucketIterator(trn,
@@ -344,9 +333,12 @@ def main():
     dec = Decoder(config, vocab)
     model = Seq2Seq(enc, dec)
     optimizer = optim.Adam(model.parameters())
-    criterion = nn.CrossEntropyLoss()
+    pad_idx = fields['question'].vocab.stoi['<pad>']
+    criterion = nn.CrossEntropyLoss(ignore_index=pad_idx)
+    best_validation_loss = float('inf')
 
     for epoch in range(N_EPOCHS):
+        print("epoch: ", epoch)
         train_loss = train(model, train_iter, optimizer, criterion, CLIP)
         valid_loss = evaluate(model, valid_iter, criterion)
 
