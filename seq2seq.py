@@ -1,13 +1,11 @@
-import numpy as np
 import torch
 import torch.nn as nn
 import re
-import unicodedata
+import en_core_web_sm
 import spacy
 import string
 from spacy.tokenizer import Tokenizer
 from torchtext.data import Field
-import en_core_web_sm
 import csv
 from torchtext.data import TabularDataset
 from torchtext.data import BucketIterator
@@ -15,37 +13,31 @@ from torchtext.vocab import GloVe
 import random
 import torch.optim as optim
 import math
+import os
+import torch.nn.functional as F
 
 SEED = 5
-JOIN_TOKEN = " "
-TEXT = Field(sequential=True, tokenize=lambda s: str.split(s, sep=JOIN_TOKEN), init_token='<sos>', eos_token='<eos>',
-             lower=True)
 N_EPOCHS = 10
 CLIP = 10
+JOIN_TOKEN = " "
+TEST_QUESTION = "Hi, how are you?"
+# Create Field object
+# TEXT = data.Field(tokenize = 'spacy', lower=True, include_lengths = True, init_token = '<sos>',  eos_token = '<eos>')
+TEXT = Field(sequential=True, tokenize=lambda s: str.split(s, sep=JOIN_TOKEN), init_token='<sos>', eos_token='<eos>',
+             lower=True)
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+SAVE_DIR = '/home/ksenia/nlg'
+MODEL_SAVE_PATH = os.path.join(SAVE_DIR, 'seq2seq_model.pt')
+
+random.seed(SEED)
+torch.manual_seed(SEED)
+torch.backends.cudnn.deterministic = True
 
 
-# Turn a Unicode string to plain ASCII, thanks to
-# https://stackoverflow.com/a/518232/2809427
-def unicodeToAscii(s):
-    return ''.join(
-        c for c in unicodedata.normalize('NFD', s)
-        if unicodedata.category(c) != 'Mn'
-    )
-
-
-# Lowercase, trim, and remove non-letter characters
-def normalizeString(s):
-    s = unicodeToAscii(s.lower().strip())
-    s = re.sub(r"([.!?])", r" \1", s)
-    s = re.sub(r"[^a-zA-Z.!?]+", r" ", s)
-    return s
-
-
-def read_text():
+def read_text(filename):
     print("Reading training dataset from Stanford")
     lines = []
-    with open('train.txt') as fp:
+    with open(filename) as fp:
         for line in fp:
             line = re.sub(r"(your persona:.*\\n)", ' ', line)
             line = ' '.join(line.split())
@@ -89,14 +81,14 @@ nlp = en_core_web_sm.load()
 nlp.tokenizer = create_custom_tokenizer(nlp)
 
 
-def tokenize(text: string, tokenizer=nlp):
-    tokens = [tok for tok in nlp.tokenizer(text) if not tok.text.isspace()]
+def tokenize(text: string, t):
+    tokens = [tok for tok in t.tokenizer(text) if not tok.text.isspace()]
     text_tokens = [tok.text for tok in tokens]
     return tokens, text_tokens
 
 
-def tokenize_and_join(text: string, jointoken=JOIN_TOKEN):
-    return jointoken.join(tokenize(text)[1])
+def tokenize_and_join(text: string, t, jointoken=JOIN_TOKEN):
+    return jointoken.join(tokenize(text, t)[1])
 
 
 def create_data(name, lines, from_line, to_line):
@@ -129,9 +121,38 @@ class Embedder(nn.Module):
         return self.embeddings(input)
 
 
+class Attention(nn.Module):
+    # Global Attention model described in LINK(Luong et. al)
+    def __init__(self, hidden_size):
+        super(Attention, self).__init__()
+
+        self.hidden_size = hidden_size
+
+    def dot_score(self, hidden_state, encoder_states):
+        return torch.sum(hidden_state * encoder_states, dim=2)
+
+    def forward(self, hidden, encoder_outputs, mask):
+        attn_scores = self.dot_score(hidden, encoder_outputs)
+        # Transpose max_length and batch_size dimensions
+        attn_scores = attn_scores.t()
+        # Apply mask so network does not attend <pad> tokens
+        attn_scores = attn_scores.masked_fill(mask == 0, -1e10)
+        # Return softmax over attention scores
+        return F.softmax(attn_scores, dim=1).unsqueeze(1)
+
+
+def init_weights(m):
+    for name, param in m.named_parameters():
+        if 'weight' in name:
+            nn.init.normal_(param.data, mean=0, std=0.01)
+        else:
+            nn.init.constant_(param.data, 0)
+
+
 class Encoder(nn.Module):
     def __init__(self, config, vocab):
         super().__init__()
+
         self.embedder = nn.Embedding(len(vocab), config["embedding_dim"])
 
         self.hidden_dim = config["hidden_dim"]
@@ -145,8 +166,9 @@ class Encoder(nn.Module):
 
         self.dropout = nn.Dropout(config["dropout_rate"])
 
-    def forward(self, batch):
-        embeds_q = self.embedder(batch)
+    def forward(self, input_sequence):
+        # Convert input_sequence to word embeddings
+        embeds_q = self.embedder(input_sequence)
         enc_q = self.dropout(embeds_q)
         outputs, (hidden, cell) = self.lstm(enc_q)
         return hidden, cell
@@ -170,7 +192,6 @@ class Decoder(nn.Module):
         embedded = self.embedder(input)
         embedded = self.dropout(embedded)
         output, (hidden, cell) = self.lstm(embedded, (hidden, cell))
-
         predicted = self.linear(output.squeeze(0))
         return predicted, hidden, cell
 
@@ -186,6 +207,7 @@ class Seq2Seq(nn.Module):
         max_len = trg.shape[0]
         trg_vocab_size = self.decoder.output_dim
         outputs = torch.zeros(max_len, batch_size, trg_vocab_size)
+        print("outputs: ", outputs.size())
         hidden, cell = self.encoder(src)
         input = trg[0, :]
 
@@ -215,7 +237,7 @@ def train(model, iterator, optimizer, criterion, clip):
     model.train()
     # loss
     epoch_loss = 0
-    print("train iterator")
+    print("train iterator ", len(iterator))
     for i, batch in enumerate(iterator):
         src = batch.question
         trg = batch.answer
@@ -263,11 +285,11 @@ def evaluate(model, iterator, criterion):
     # we don't need to update the model parameters. only forward pass.
     with torch.no_grad():
         for i, batch in enumerate(iterator):
-            src = batch.src
-            trg = batch.trg
+            src = batch.question
+            trg = batch.answer
 
             output = model(src, trg, 0)  # turn off the teacher forcing
-
+            val, idx = output.max(1)
             # loss function works only 2d logits, 1d targets
             # so flatten the trg, output tensors. Ignore the <sos> token
             # trg shape shape should be [(sequence_len - 1) * batch_size]
@@ -278,34 +300,69 @@ def evaluate(model, iterator, criterion):
     return epoch_loss / len(iterator)
 
 
+def prepare_data():
+    lines = read_text('train.txt')
+    tokenized_lines = []
+    for line in lines:
+        tokenized_lines.append(tokenize_and_join(line, nlp))
+
+    print(tokenize_and_join(lines[0], nlp))
+    lines = tokenized_lines
+    create_data('train.csv', lines, 0, int(len(lines) * 2 / 3))
+    create_data('valid.csv', lines, int(len(lines) * 2 / 3), len(lines))
+    create_data('test.csv', lines, int(len(lines) / 5), int(len(lines) / 5 * 4))
+
+
+def test_model(example, fields, vocab, model, max_len=50):
+    model.eval()
+
+    _, tokenized = tokenize(example, nlp)
+    tokenized = [fields['question'].init_token] + tokenized + [fields['question'].eos_token]
+    numericalized = [vocab.stoi[t] for t in tokenized]
+    src_tensor = torch.LongTensor(numericalized).unsqueeze(1).to(device)
+    hidden, cell = model.encoder(src_tensor)
+
+    trg_indexes = [vocab.stoi[fields['answer'].init_token]]
+    for i in range(max_len):
+        trg_tensor = torch.LongTensor([trg_indexes[-1]]).to(device)
+        predicted, hidden, cell = model.decoder(trg_tensor, hidden, cell)
+        pred_token = predicted.argmax(1).item()
+        trg_indexes.append(pred_token)
+        if pred_token == vocab.stoi[fields['answer'].eos_token]:
+            break
+
+    trg_tokens = [vocab.itos[i] for i in trg_indexes]
+    return trg_tokens
+
+
+def train_model(model, fields, train_iter, valid_iter):
+    model.apply(init_weights)
+    optimizer = optim.Adam(model.parameters())
+    pad_idx = fields['question'].vocab.stoi['<pad>']
+    criterion = nn.CrossEntropyLoss(ignore_index=pad_idx)
+    best_validation_loss = float('inf')
+
+    for epoch in range(N_EPOCHS):
+        print("epoch: ", epoch)
+        train_loss = train(model, train_iter, optimizer, criterion, CLIP)
+        valid_loss = evaluate(model, valid_iter, criterion)
+        print("check")
+        if valid_loss < best_validation_loss:
+            best_validation_loss = valid_loss
+            torch.save(model.state_dict(), MODEL_SAVE_PATH)
+            print(
+                f'| Epoch: {epoch + 1:03} | Train Loss: {train_loss:.3f} | Train PPL: {math.exp(train_loss):7.3f} | Val. Loss: {valid_loss:.3f} | Val. PPL: {math.exp(valid_loss):7.3f} |')
+
+
 def main():
-    random.seed(SEED)
-    torch.manual_seed(SEED)
-    torch.backends.cudnn.deterministic = True
-
-    # We will use this special token to join the pre-tokenized data
-    # lines = read_text()
-    # tokenized_lines = []
-    # for line in lines:
-    #     tokenized_lines.append(tokenize_and_join(line))
-    #
-    # print(tokenize_and_join(lines[0]))
-    # lines = tokenized_lines
-    # create_data('train.csv', lines, 0, int(len(lines) * 2 / 3))
-    # create_data('valid.csv', lines, int(len(lines) * 2 / 3), len(lines))
-    # create_data('test.csv', lines, int(len(lines) / 5), int(len(lines) / 5 * 4))
-
     config = {"train_batch_size": 80, "optimize_embeddings": False,
-              "scale_emb_grad_by_freq": False, "embedding_dim": 100, "hidden_dim": 200, "dropout_rate": 0.5,
-              "num_layers": 2}
+              "embedding_dim": 100, "hidden_dim": 200, "dropout_rate": 0.5, "num_layers": 2}
 
-    data_fields = [
-        ('question', TEXT),
-        ('answer', TEXT)
-    ]
+    # Specify Fields in our dataset
+    data_fields = [('question', TEXT), ('answer', TEXT)]
     fields = dict(data_fields)
 
-    # train = SDataset(fields)
+    # Build the dataset for train, validation and test sets
     trn, vld, test = TabularDataset.splits(
         path="~/nlg",  # the root directory where the data lies
         train='train.csv', validation="valid.csv", test='test.csv',
@@ -314,9 +371,11 @@ def main():
         # if your csv header has a header, make sure to pass this to ensure it doesn't get proceesed as data!
         fields=data_fields)
 
+    # Build vocabulary
     fields["question"].build_vocab(trn, vectors=GloVe(name='6B', dim=config["embedding_dim"]))
     vocab = fields["question"].vocab
 
+    # Create a set of iterators
     train_iter = BucketIterator(trn,
                                 shuffle=True, sort=False,
                                 batch_size=config["train_batch_size"],
@@ -329,24 +388,16 @@ def main():
                                 device=device)
 
     print(vocab.freqs.most_common(50))
+
     enc = Encoder(config, vocab)
     dec = Decoder(config, vocab)
     model = Seq2Seq(enc, dec)
-    optimizer = optim.Adam(model.parameters())
-    pad_idx = fields['question'].vocab.stoi['<pad>']
-    criterion = nn.CrossEntropyLoss(ignore_index=pad_idx)
-    best_validation_loss = float('inf')
 
-    for epoch in range(N_EPOCHS):
-        print("epoch: ", epoch)
-        train_loss = train(model, train_iter, optimizer, criterion, CLIP)
-        valid_loss = evaluate(model, valid_iter, criterion)
-
-        if valid_loss < best_validation_loss:
-            best_validation_loss = valid_loss
-            # torch.save(model.state_dict(), MODEL_SAVE_PATH)
-            print(
-                f'| Epoch: {epoch + 1:03} | Train Loss: {train_loss:.3f} | Train PPL: {math.exp(train_loss):7.3f} | Val. Loss: {valid_loss:.3f} | Val. PPL: {math.exp(valid_loss):7.3f} |')
+    model.load_state_dict(torch.load(MODEL_SAVE_PATH))
+    answer = test_model(TEST_QUESTION, fields, vocab, model)
+    print("QUESTION: ", TEST_QUESTION)
+    print("ANSWER: ", answer)
+    # train_model(model, fields, train_iter, valid_iter)
 
 
 if __name__ == "__main__":
