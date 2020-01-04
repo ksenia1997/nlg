@@ -16,20 +16,20 @@ import math
 import os
 import torch.nn.functional as F
 import operator
+from queue import PriorityQueue
 
 SEED = 5
-N_EPOCHS = 10
+N_EPOCHS = 20
 CLIP = 10
 JOIN_TOKEN = " "
 TEST_QUESTION = "Hi, how are you?"
+IS_TEST = True
 # Create Field object
 # TEXT = data.Field(tokenize = 'spacy', lower=True, include_lengths = True, init_token = '<sos>',  eos_token = '<eos>')
 TEXT = Field(sequential=True, tokenize=lambda s: str.split(s, sep=JOIN_TOKEN), init_token='<sos>', eos_token='<eos>',
              lower=True)
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-SAVE_DIR = '/home/ksenia/nlg'
-MODEL_SAVE_PATH = os.path.join(SAVE_DIR, 'seq2seq_model.pt')
-
+MODEL_SAVE_PATH = 'seq2seq_model.pt'
 random.seed(SEED)
 torch.manual_seed(SEED)
 torch.backends.cudnn.deterministic = True
@@ -164,7 +164,7 @@ class BeamSearchNode(object):
         return self.logp / float(self.leng - 1 + 1e-6) + alpha * reward
 
 
-def beam_decode(fields, decoder, target_tensor, decoder_hiddens, encoder_outputs=None):
+def beam_decode(fields, decoder, target_tensor, decoder_hiddens, encoder_output, vocab):
     '''
     :param target_tensor: target indexes tensor of shape [B, T] where B is the batch size and T is the maximum length of the output sentence
     :param decoder_hidden: input tensor of shape [1, B, H] for start of the decoding
@@ -176,18 +176,22 @@ def beam_decode(fields, decoder, target_tensor, decoder_hiddens, encoder_outputs
     topk = 1  # how many sentence do you want to generate
     decoded_batch = []
     EOS_token = fields['answer'].eos_token
-    SOS_token = fields['answer'].sos_token
+    SOS_token = fields['answer'].init_token
     # decoding goes sentence by sentence
     for idx in range(target_tensor.size(0)):
-        if isinstance(decoder_hiddens, tuple):  # LSTM case
-            decoder_hidden = (decoder_hiddens[0][:, idx, :].unsqueeze(0), decoder_hiddens[1][:, idx, :].unsqueeze(0))
-        else:
-            decoder_hidden = decoder_hiddens[:, idx, :].unsqueeze(0)
-        encoder_output = encoder_outputs[:, idx, :].unsqueeze(1)
+        # if isinstance(decoder_hiddens, tuple):  # LSTM case
+        #     print("LSTM")
+        #     decoder_hidden = (decoder_hiddens[0][:, idx, :].unsqueeze(0), decoder_hiddens[1][:, idx, :].unsqueeze(0))
+        # else:
+        #     decoder_hidden = decoder_hiddens[:, idx, :].unsqueeze(0)
+        print("decoder hidden: ", decoder_hiddens.size())
+        decoder_hidden = decoder_hiddens
+
+        # encoder_output = encoder_outputs[:, idx, :].unsqueeze(1)
 
         # Start with the start of the sentence token
-        decoder_input = torch.LongTensor([[SOS_token]], device=device)
-
+        decoder_input = torch.LongTensor([vocab.stoi[SOS_token]]).to(device)
+        print("decoder input size: ", decoder_input.size())
         # Number of sentence to generate
         endnodes = []
         number_required = min((topk + 1), topk - len(endnodes))
@@ -219,6 +223,8 @@ def beam_decode(fields, decoder, target_tensor, decoder_hiddens, encoder_outputs
                     continue
 
             # decode for one step using decoder
+            print("encoder output size: ", encoder_output.size())
+            print("decoder hidden: ", decoder_hidden.size())
             decoder_output, decoder_hidden = decoder(decoder_input, decoder_hidden, encoder_output)
 
             # PUT HERE REAL BEAM SEARCH OF TOP
@@ -327,7 +333,6 @@ class Seq2Seq(nn.Module):
         max_len = trg.shape[0]
         trg_vocab_size = self.decoder.output_dim
         outputs = torch.zeros(max_len, batch_size, trg_vocab_size)
-        print("outputs: ", outputs.size())
         hidden, cell = self.encoder(src)
         input = trg[0, :]
 
@@ -409,7 +414,6 @@ def evaluate(model, iterator, criterion):
             trg = batch.answer
 
             output = model(src, trg, 0)  # turn off the teacher forcing
-            val, idx = output.max(1)
             # loss function works only 2d logits, 1d targets
             # so flatten the trg, output tensors. Ignore the <sos> token
             # trg shape shape should be [(sequence_len - 1) * batch_size]
@@ -443,8 +447,14 @@ def test_model(example, fields, vocab, model, max_len=50):
     hidden, cell = model.encoder(src_tensor)
 
     trg_indexes = [vocab.stoi[fields['answer'].init_token]]
+    print("trg indexes: ", trg_indexes)
+
+    print(numericalized)
+    print("src indexes: ", src_tensor)
     for i in range(max_len):
         trg_tensor = torch.LongTensor([trg_indexes[-1]]).to(device)
+        print("trg tensor size: ", trg_tensor.size())
+        trg_tensor = beam_decode(fields, model.decoder, trg_tensor, hidden, trg_tensor, vocab)
         predicted, hidden, cell = model.decoder(trg_tensor, hidden, cell)
         pred_token = predicted.argmax(1).item()
         trg_indexes.append(pred_token)
@@ -513,11 +523,13 @@ def main():
     dec = Decoder(config, vocab)
     model = Seq2Seq(enc, dec)
 
-    model.load_state_dict(torch.load(MODEL_SAVE_PATH))
-    answer = test_model(TEST_QUESTION, fields, vocab, model)
-    print("QUESTION: ", TEST_QUESTION)
-    print("ANSWER: ", answer)
-    # train_model(model, fields, train_iter, valid_iter)
+    if IS_TEST:
+        model.load_state_dict(torch.load(MODEL_SAVE_PATH))
+        answer = test_model(TEST_QUESTION, fields, vocab, model)
+        print("QUESTION: ", TEST_QUESTION)
+        print("ANSWER: ", answer)
+    else:
+        train_model(model, fields, train_iter, valid_iter)
 
 
 if __name__ == "__main__":
