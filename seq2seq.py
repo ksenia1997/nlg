@@ -439,7 +439,6 @@ def prepare_data():
 
 def test_model(example, fields, vocab, model, max_len=50):
     model.eval()
-
     _, tokenized = tokenize(example, nlp)
     tokenized = [fields['question'].init_token] + tokenized + [fields['question'].eos_token]
     numericalized = [vocab.stoi[t] for t in tokenized]
