@@ -13,13 +13,12 @@ from torchtext.vocab import GloVe
 import random
 import torch.optim as optim
 import math
-import os
 import torch.nn.functional as F
 import operator
 from queue import PriorityQueue
 
-SEED = 5
-N_EPOCHS = 20
+SEED = 5  # set seed value for deterministic results
+N_EPOCHS = 15
 CLIP = 10
 JOIN_TOKEN = " "
 TEST_QUESTION = "Hi, how are you?"
@@ -27,7 +26,7 @@ IS_TEST = True
 # Create Field object
 # TEXT = data.Field(tokenize = 'spacy', lower=True, include_lengths = True, init_token = '<sos>',  eos_token = '<eos>')
 TEXT = Field(sequential=True, tokenize=lambda s: str.split(s, sep=JOIN_TOKEN), init_token='<sos>', eos_token='<eos>',
-             lower=True)
+             pad_token='<pad>', lower=True)
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 MODEL_SAVE_PATH = 'seq2seq_model.pt'
 random.seed(SEED)
@@ -54,6 +53,7 @@ def read_text(filename):
 
 
 def create_custom_tokenizer(nlp):
+    print("Creating custom tokenizer")
     custom_prefixes = [r'[0-9]+', r'\~', r'\–', r'\—', r'\$']
     custom_infixes = [r'[!&:,()]', r'\.', r'\-', r'\–', r'\—', r'\$']
     custom_suffixes = [r'\.', r'\–', r'\—', r'\$']
@@ -83,6 +83,7 @@ nlp.tokenizer = create_custom_tokenizer(nlp)
 
 
 def tokenize(text: string, t):
+    print("Tokenize")
     tokens = [tok for tok in t.tokenizer(text) if not tok.text.isspace()]
     text_tokens = [tok.text for tok in tokens]
     return tokens, text_tokens
@@ -99,27 +100,6 @@ def create_data(name, lines, from_line, to_line):
         writer.writeheader()
         for i in range(from_line, to_line, 2):
             writer.writerow({'question': lines[i], 'answer': lines[i + 1]})
-
-
-class Embedder(nn.Module):
-    def __init__(self, vocab, config):
-        super().__init__()
-        self.vocab = vocab
-        self.init_vocab(vocab, config['optimize_embeddings'])
-        print(f"Optimize embeddings = {config['optimize_embeddings']}")
-        print(f"Vocabulary size = {len(vocab.vectors)}")
-
-    def init_vocab(self, vocab, optimize_embeddings=False, device=None):
-        self.embeddings = nn.Embedding(len(vocab), vocab.vectors.shape[1])
-
-        if device is not None:
-            self.embeddings = self.embeddings.to(device)
-        # Copy over the pre-trained GloVe embeddings
-        self.embeddings.weight.data.copy_(vocab.vectors)
-        self.embeddings.weight.requires_grad = optimize_embeddings
-
-    def forward(self, input):
-        return self.embeddings(input)
 
 
 class Attention(nn.Module):
@@ -142,6 +122,17 @@ class Attention(nn.Module):
         return F.softmax(attn_scores, dim=1).unsqueeze(1)
 
 
+def greedy_search(model, vocab, fields, trg_indexes, hidden, cell, max_len):
+    for i in range(max_len):
+        trg_tensor = torch.LongTensor([trg_indexes[-1]]).to(device)
+        predicted, hidden, cell = model.decoder(trg_tensor, hidden, cell)
+        pred_token = predicted.argmax(1).item()
+        trg_indexes.append(pred_token)
+        if pred_token == vocab.stoi[fields['answer'].eos_token]:
+            break
+        return [vocab.itos[i] for i in trg_indexes]
+
+
 class BeamSearchNode(object):
     def __init__(self, hiddenstate, previousNode, wordId, logProb, length):
         '''
@@ -158,40 +149,31 @@ class BeamSearchNode(object):
         self.leng = length
 
     def eval(self, alpha=1.0):
-        reward = 0
+        reward = 0.2
         # Add here a function for shaping a reward
-
         return self.logp / float(self.leng - 1 + 1e-6) + alpha * reward
 
 
-def beam_decode(fields, decoder, target_tensor, decoder_hiddens, encoder_output, vocab):
+def beam_decode(decoder, vocab, fields, target_tensor, decoder_hiddens, encoder_output):
     '''
     :param target_tensor: target indexes tensor of shape [B, T] where B is the batch size and T is the maximum length of the output sentence
     :param decoder_hidden: input tensor of shape [1, B, H] for start of the decoding
     :param encoder_outputs: if you are using attention mechanism you can pass encoder outputs, [T, B, H] where T is the maximum length of input sentence
     :return: decoded_batch
     '''
-
+    print("Beam decode")
     beam_width = 10
-    topk = 1  # how many sentence do you want to generate
+    topk = 4  # how many sentence do you want to generate
     decoded_batch = []
     EOS_token = fields['answer'].eos_token
     SOS_token = fields['answer'].init_token
+
     # decoding goes sentence by sentence
     for idx in range(target_tensor.size(0)):
-        # if isinstance(decoder_hiddens, tuple):  # LSTM case
-        #     print("LSTM")
-        #     decoder_hidden = (decoder_hiddens[0][:, idx, :].unsqueeze(0), decoder_hiddens[1][:, idx, :].unsqueeze(0))
-        # else:
-        #     decoder_hidden = decoder_hiddens[:, idx, :].unsqueeze(0)
-        print("decoder hidden: ", decoder_hiddens.size())
         decoder_hidden = decoder_hiddens
-
-        # encoder_output = encoder_outputs[:, idx, :].unsqueeze(1)
 
         # Start with the start of the sentence token
         decoder_input = torch.LongTensor([vocab.stoi[SOS_token]]).to(device)
-        print("decoder input size: ", decoder_input.size())
         # Number of sentence to generate
         endnodes = []
         number_required = min((topk + 1), topk - len(endnodes))
@@ -207,7 +189,7 @@ def beam_decode(fields, decoder, target_tensor, decoder_hiddens, encoder_output,
         # start beam search
         while True:
             # give up when decoding takes too long
-            if qsize > 2000: break
+            if qsize > 1000: break
 
             # fetch the best node
             score, n = nodes.get()
@@ -223,18 +205,14 @@ def beam_decode(fields, decoder, target_tensor, decoder_hiddens, encoder_output,
                     continue
 
             # decode for one step using decoder
-            print("encoder output size: ", encoder_output.size())
-            print("decoder hidden: ", decoder_hidden.size())
-            decoder_output, decoder_hidden = decoder(decoder_input, decoder_hidden, encoder_output)
-
+            decoder_output, decoder_hidden, cell = decoder(decoder_input, decoder_hidden, encoder_output)
             # PUT HERE REAL BEAM SEARCH OF TOP
             log_prob, indexes = torch.topk(decoder_output, beam_width)
             nextnodes = []
 
             for new_k in range(beam_width):
-                decoded_t = indexes[0][new_k].view(1, -1)
+                decoded_t = indexes[0][new_k].unsqueeze(0)
                 log_p = log_prob[0][new_k].item()
-
                 node = BeamSearchNode(decoder_hidden, n, decoded_t, n.logp + log_p, n.leng + 1)
                 score = -node.eval()
                 nextnodes.append((score, node))
@@ -250,7 +228,6 @@ def beam_decode(fields, decoder, target_tensor, decoder_hiddens, encoder_output,
         if len(endnodes) == 0:
             endnodes = [nodes.get() for _ in range(topk)]
 
-        utterances = []
         for score, n in sorted(endnodes, key=operator.itemgetter(0)):
             utterance = []
             utterance.append(n.wordid)
@@ -258,11 +235,9 @@ def beam_decode(fields, decoder, target_tensor, decoder_hiddens, encoder_output,
             while n.prevNode != None:
                 n = n.prevNode
                 utterance.append(n.wordid)
-
             utterance = utterance[::-1]
-            utterances.append(utterance)
-
-        decoded_batch.append(utterances)
+            sentence = [vocab.itos[i] for i in utterance]
+            decoded_batch.append(sentence)
 
     return decoded_batch
 
@@ -275,22 +250,36 @@ def init_weights(m):
             nn.init.constant_(param.data, 0)
 
 
+def prepare_data():
+    print("Prepare data")
+    lines = read_text('train.txt')
+    tokenized_lines = []
+    for line in lines:
+        tokenized_lines.append(tokenize_and_join(line, nlp))
+
+    print(tokenize_and_join(lines[0], nlp))
+    lines = tokenized_lines
+    create_data('train.csv', lines, 0, int(len(lines) * 9 / 10))
+    create_data('valid.csv', lines, int(len(lines) * 9 / 10), len(lines))
+    create_data('test.csv', lines, int(len(lines) / 8), int(len(lines) * 3 / 8))
+
+
 class Encoder(nn.Module):
     def __init__(self, config, vocab):
         super().__init__()
 
-        self.embedder = nn.Embedding(len(vocab), config["embedding_dim"])
-
+        self.embedding_dim = config["embedding_dim"]
         self.hidden_dim = config["hidden_dim"]
         self.n_layers = config["num_layers"]
+        self.dropout_rate = config['dropout_rate']
 
+        self.embedder = nn.Embedding(len(vocab), self.embedding_dim)
         self.lstm = torch.nn.LSTM(
-            config["embedding_dim"],
-            config["hidden_dim"],
-            config["num_layers"],
-            dropout=float(config['dropout_rate']))
-
-        self.dropout = nn.Dropout(config["dropout_rate"])
+            self.embedding_dim,
+            self.hidden_dim,
+            self.n_layers,
+            dropout=float(self.dropout_rate))
+        self.dropout = nn.Dropout(self.dropout_rate)
 
     def forward(self, input_sequence):
         # Convert input_sequence to word embeddings
@@ -303,15 +292,21 @@ class Encoder(nn.Module):
 class Decoder(nn.Module):
     def __init__(self, config, vocab):
         super().__init__()
+
+        self.embedding_dim = config["embedding_dim"]
+        self.hidden_dim = config["hidden_dim"]
         self.output_dim = len(vocab)
-        self.embedder = nn.Embedding(self.output_dim, config["embedding_dim"])
+        self.n_layers = config["num_layers"]
+        self.dropout_rate = config['dropout_rate']
+
+        self.embedder = nn.Embedding(self.output_dim, self.embedding_dim)
         self.lstm = torch.nn.LSTM(
-            config["embedding_dim"],
-            config["hidden_dim"],
-            config["num_layers"],
-            dropout=float(config['dropout_rate']))
-        self.linear = nn.Linear(config["hidden_dim"], self.output_dim)
-        self.dropout = nn.Dropout(config["dropout_rate"])
+            self.embedding_dim,
+            self.hidden_dim,
+            self.n_layers,
+            dropout=float(self.dropout_rate))
+        self.linear = nn.Linear(self.hidden_dim, self.output_dim)
+        self.dropout = nn.Dropout(self.dropout_rate)
 
     def forward(self, input, hidden, cell):
         input = input.unsqueeze(0)
@@ -358,7 +353,7 @@ def train(model, iterator, optimizer, criterion, clip):
         epoch_loss: Average loss of the epoch.
     '''
     #  some layers have different behavior during train/and evaluation (like BatchNorm, Dropout) so setting it matters.
-    print("train")
+    print("Train")
     model.train()
     # loss
     epoch_loss = 0
@@ -402,6 +397,7 @@ def evaluate(model, iterator, criterion):
     Returns:
         epoch_loss: Average loss of the epoch.
     '''
+    print("Evaluate")
     #  some layers have different behavior during train/and evaluation (like BatchNorm, Dropout) so setting it matters.
     model.eval()
     # loss
@@ -424,50 +420,26 @@ def evaluate(model, iterator, criterion):
     return epoch_loss / len(iterator)
 
 
-def prepare_data():
-    lines = read_text('train.txt')
-    tokenized_lines = []
-    for line in lines:
-        tokenized_lines.append(tokenize_and_join(line, nlp))
-
-    print(tokenize_and_join(lines[0], nlp))
-    lines = tokenized_lines
-    create_data('train.csv', lines, 0, int(len(lines) * 2 / 3))
-    create_data('valid.csv', lines, int(len(lines) * 2 / 3), len(lines))
-    create_data('test.csv', lines, int(len(lines) / 5), int(len(lines) / 5 * 4))
-
-
-def test_model(example, fields, vocab, model, max_len=50):
+def test_model(example, fields, vocab, model, max_len=10):
+    print("Test model")
     model.eval()
     _, tokenized = tokenize(example, nlp)
     tokenized = [fields['question'].init_token] + tokenized + [fields['question'].eos_token]
     numericalized = [vocab.stoi[t] for t in tokenized]
     src_tensor = torch.LongTensor(numericalized).unsqueeze(1).to(device)
     hidden, cell = model.encoder(src_tensor)
-
     trg_indexes = [vocab.stoi[fields['answer'].init_token]]
-    print("trg indexes: ", trg_indexes)
+    trg_tensor = torch.LongTensor([trg_indexes[-1]]).to(device)
+    trg_tensor = beam_decode(model.decoder, vocab, fields, trg_tensor, hidden, cell)
 
-    print(numericalized)
-    print("src indexes: ", src_tensor)
-    for i in range(max_len):
-        trg_tensor = torch.LongTensor([trg_indexes[-1]]).to(device)
-        print("trg tensor size: ", trg_tensor.size())
-        trg_tensor = beam_decode(fields, model.decoder, trg_tensor, hidden, trg_tensor, vocab)
-        predicted, hidden, cell = model.decoder(trg_tensor, hidden, cell)
-        pred_token = predicted.argmax(1).item()
-        trg_indexes.append(pred_token)
-        if pred_token == vocab.stoi[fields['answer'].eos_token]:
-            break
-
-    trg_tokens = [vocab.itos[i] for i in trg_indexes]
-    return trg_tokens
+    return trg_tensor
 
 
 def train_model(model, fields, train_iter, valid_iter):
+    print("Train model")
     model.apply(init_weights)
     optimizer = optim.Adam(model.parameters())
-    pad_idx = fields['question'].vocab.stoi[fields['answer'].eos_token]
+    pad_idx = fields['question'].vocab.stoi[fields['answer'].pad_token]
     criterion = nn.CrossEntropyLoss(ignore_index=pad_idx)
     best_validation_loss = float('inf')
 
@@ -501,7 +473,8 @@ def main():
         fields=data_fields)
 
     # Build vocabulary
-    fields["question"].build_vocab(trn, vectors=GloVe(name='6B', dim=config["embedding_dim"]))
+    print("Build vocabulary")
+    fields["question"].build_vocab(trn, min_freq=2, vectors=GloVe(name='6B', dim=config["embedding_dim"]))
     vocab = fields["question"].vocab
 
     # Create a set of iterators
@@ -516,7 +489,7 @@ def main():
                                 repeat=False,
                                 device=device)
 
-    print(vocab.freqs.most_common(50))
+    print("Most common: ", vocab.freqs.most_common(50))
 
     enc = Encoder(config, vocab)
     dec = Decoder(config, vocab)
