@@ -22,7 +22,10 @@ N_EPOCHS = 15
 CLIP = 10
 JOIN_TOKEN = " "
 TEST_QUESTION = "Hi, how are you?"
-IS_TEST = True
+CONTEXT_PAIR_COUNT = 0
+IS_TEST = False
+DEBUG = False
+WITH_DESCRIPTION = True
 # Create Field object
 # TEXT = data.Field(tokenize = 'spacy', lower=True, include_lengths = True, init_token = '<sos>',  eos_token = '<eos>')
 TEXT = Field(sequential=True, tokenize=lambda s: str.split(s, sep=JOIN_TOKEN), init_token='<sos>', eos_token='<eos>',
@@ -34,22 +37,65 @@ torch.manual_seed(SEED)
 torch.backends.cudnn.deterministic = True
 
 
-def read_text(filename):
+def read_text(filename, context_pair_count):
     print("Reading training dataset from Stanford")
     lines = []
+    counter = 0
+    your_persona_description = ""
     with open(filename) as fp:
+        question_line = ""
         for line in fp:
+            if line == '\n':
+                question_line = ""
+            your_persona = re.findall(r"(your persona:.*\\n)", line)
+            if WITH_DESCRIPTION and len(your_persona) > 0:
+                your_persona = re.sub(r"\\n", '', your_persona[0]).split("your persona: ")
+                your_persona_description = ' # '.join(your_persona[1:])
+                question_line += your_persona_description
             line = re.sub(r"(your persona:.*\\n)", ' ', line)
             line = ' '.join(line.split())
             question = re.findall(r"text:(.*)labels:", line)
-            answer = re.findall(r"labels:(.*)(episode_done:)", line)
+            answer = re.findall(r"labels:(.*)episode_done:", line)
             if len(answer) == 0:
-                answer = re.findall(r"labels:(.*)(question:)", line)
+                answer = re.findall(r"labels:(.*)question:", line)
             if len(answer) and len(question):
-                lines.append(question[0])
-                lines.append(answer[0][0])
+                if counter < context_pair_count or context_pair_count == 0:
+                    question_line += " # " + question[0]
+                    counter += 1
+                else:
+                    question_line = your_persona_description + " # " + question[0]
+                    counter = 0
+                answer_line = question_line + " # " + answer[0]
+                lines.append(question_line)
+                lines.append(answer_line)
 
     return lines
+
+
+def tokenize_and_join(text: string, t, jointoken=JOIN_TOKEN):
+    return jointoken.join(tokenize(text, t)[1])
+
+
+def create_data(name, lines, from_line, to_line):
+    with open(name, mode='w') as csv_file:
+        fieldnames = ['question', 'answer']
+        writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
+        writer.writeheader()
+        for i in range(from_line, to_line, 2):
+            writer.writerow({'question': lines[i], 'answer': lines[i + 1]})
+
+
+def prepare_data():
+    print("Prepare data")
+    lines = read_text('train.txt', CONTEXT_PAIR_COUNT)
+    tokenized_lines = []
+    for line in lines:
+        tokenized_lines.append(tokenize_and_join(line, nlp))
+
+    lines = tokenized_lines
+    create_data('train.csv', lines, 0, int(len(lines) * 9 / 10))
+    create_data('valid.csv', lines, int(len(lines) * 9 / 10), len(lines))
+    create_data('test.csv', lines, int(len(lines) / 8), int(len(lines) * 3 / 8))
 
 
 def create_custom_tokenizer(nlp):
@@ -83,23 +129,9 @@ nlp.tokenizer = create_custom_tokenizer(nlp)
 
 
 def tokenize(text: string, t):
-    print("Tokenize")
     tokens = [tok for tok in t.tokenizer(text) if not tok.text.isspace()]
     text_tokens = [tok.text for tok in tokens]
     return tokens, text_tokens
-
-
-def tokenize_and_join(text: string, t, jointoken=JOIN_TOKEN):
-    return jointoken.join(tokenize(text, t)[1])
-
-
-def create_data(name, lines, from_line, to_line):
-    with open(name, mode='w') as csv_file:
-        fieldnames = ['question', 'answer']
-        writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
-        writer.writeheader()
-        for i in range(from_line, to_line, 2):
-            writer.writerow({'question': lines[i], 'answer': lines[i + 1]})
 
 
 class Attention(nn.Module):
@@ -149,7 +181,7 @@ class BeamSearchNode(object):
         self.leng = length
 
     def eval(self, alpha=1.0):
-        reward = 0.2
+        reward = 0
         # Add here a function for shaping a reward
         return self.logp / float(self.leng - 1 + 1e-6) + alpha * reward
 
@@ -162,8 +194,8 @@ def beam_decode(decoder, vocab, fields, target_tensor, decoder_hiddens, encoder_
     :return: decoded_batch
     '''
     print("Beam decode")
-    beam_width = 10
-    topk = 4  # how many sentence do you want to generate
+    beam_width = 20
+    topk = 3  # how many sentence do you want to generate
     decoded_batch = []
     EOS_token = fields['answer'].eos_token
     SOS_token = fields['answer'].init_token
@@ -250,20 +282,6 @@ def init_weights(m):
             nn.init.constant_(param.data, 0)
 
 
-def prepare_data():
-    print("Prepare data")
-    lines = read_text('train.txt')
-    tokenized_lines = []
-    for line in lines:
-        tokenized_lines.append(tokenize_and_join(line, nlp))
-
-    print(tokenize_and_join(lines[0], nlp))
-    lines = tokenized_lines
-    create_data('train.csv', lines, 0, int(len(lines) * 9 / 10))
-    create_data('valid.csv', lines, int(len(lines) * 9 / 10), len(lines))
-    create_data('test.csv', lines, int(len(lines) / 8), int(len(lines) * 3 / 8))
-
-
 class Encoder(nn.Module):
     def __init__(self, config, vocab):
         super().__init__()
@@ -324,6 +342,7 @@ class Seq2Seq(nn.Module):
         self.decoder = decoder
 
     def forward(self, src, trg, teacher_forcing_ratio=0.5):
+        print("trg size: ", trg.size())
         batch_size = trg.shape[1]
         max_len = trg.shape[0]
         trg_vocab_size = self.decoder.output_dim
@@ -357,7 +376,7 @@ def train(model, iterator, optimizer, criterion, clip):
     model.train()
     # loss
     epoch_loss = 0
-    print("train iterator ", len(iterator))
+
     for i, batch in enumerate(iterator):
         src = batch.question
         trg = batch.answer
@@ -447,7 +466,6 @@ def train_model(model, fields, train_iter, valid_iter):
         print("epoch: ", epoch)
         train_loss = train(model, train_iter, optimizer, criterion, CLIP)
         valid_loss = evaluate(model, valid_iter, criterion)
-        print("check")
         if valid_loss < best_validation_loss:
             best_validation_loss = valid_loss
             torch.save(model.state_dict(), MODEL_SAVE_PATH)
@@ -456,6 +474,9 @@ def train_model(model, fields, train_iter, valid_iter):
 
 
 def main():
+    if DEBUG:
+        prepare_data()
+        exit()
     config = {"train_batch_size": 80, "optimize_embeddings": False,
               "embedding_dim": 100, "hidden_dim": 200, "dropout_rate": 0.5, "num_layers": 2}
 
@@ -474,7 +495,7 @@ def main():
 
     # Build vocabulary
     print("Build vocabulary")
-    fields["question"].build_vocab(trn, min_freq=2, vectors=GloVe(name='6B', dim=config["embedding_dim"]))
+    fields["question"].build_vocab(trn, vectors=GloVe(name='6B', dim=config["embedding_dim"]))
     vocab = fields["question"].vocab
 
     # Create a set of iterators
