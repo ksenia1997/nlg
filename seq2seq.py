@@ -23,30 +23,39 @@ CLIP = 10
 JOIN_TOKEN = " "
 TEST_QUESTION = "Hi, how are you?"
 CONTEXT_PAIR_COUNT = 0
-IS_TEST = False
+IS_TEST = True
 DEBUG = False
 WITH_DESCRIPTION = True
+MODEL_SAVE_PATH = 'seq2seq_model.pt'
+
 # Create Field object
 # TEXT = data.Field(tokenize = 'spacy', lower=True, include_lengths = True, init_token = '<sos>',  eos_token = '<eos>')
 TEXT = Field(sequential=True, tokenize=lambda s: str.split(s, sep=JOIN_TOKEN), init_token='<sos>', eos_token='<eos>',
              pad_token='<pad>', lower=True)
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-MODEL_SAVE_PATH = 'seq2seq_model.pt'
 random.seed(SEED)
 torch.manual_seed(SEED)
 torch.backends.cudnn.deterministic = True
 
 
-def read_text(filename, context_pair_count):
-    print("Reading training dataset from Stanford")
+def prepare_Persona_chat(filename, context_pair_count):
+    print("Reading Persona chat")
     lines = []
     counter = 0
     your_persona_description = ""
+    test_data = []
+    is_new_topic = True
     with open(filename) as fp:
         question_line = ""
         for line in fp:
             if line == '\n':
                 question_line = ""
+                if random.randint(0, 10) < 5:
+                    is_new_topic = True
+                    test_data.append("\n")
+                    test_data.append("\n")
+                else:
+                    is_new_topic = False
             your_persona = re.findall(r"(your persona:.*\\n)", line)
             if WITH_DESCRIPTION and len(your_persona) > 0:
                 your_persona = re.sub(r"\\n", '', your_persona[0]).split("your persona: ")
@@ -59,6 +68,9 @@ def read_text(filename, context_pair_count):
             if len(answer) == 0:
                 answer = re.findall(r"labels:(.*)question:", line)
             if len(answer) and len(question):
+                if is_new_topic:
+                    test_data.append(question[0])
+                    test_data.append(answer[0])
                 if counter < context_pair_count or context_pair_count == 0:
                     question_line += " # " + question[0]
                     counter += 1
@@ -69,14 +81,20 @@ def read_text(filename, context_pair_count):
                 lines.append(question_line)
                 lines.append(answer_line)
 
-    return lines
+    return lines, test_data
+
+
+def tokenize(text: string, t):
+    tokens = [tok for tok in t.tokenizer(text) if not tok.text.isspace()]
+    text_tokens = [tok.text for tok in tokens]
+    return tokens, text_tokens
 
 
 def tokenize_and_join(text: string, t, jointoken=JOIN_TOKEN):
     return jointoken.join(tokenize(text, t)[1])
 
 
-def create_data(name, lines, from_line, to_line):
+def save_to_csv(name, lines, from_line, to_line):
     with open(name, mode='w') as csv_file:
         fieldnames = ['question', 'answer']
         writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
@@ -85,17 +103,34 @@ def create_data(name, lines, from_line, to_line):
             writer.writerow({'question': lines[i], 'answer': lines[i + 1]})
 
 
+def load_csv(name):
+    with open(name) as csv_file:
+        csv_reader = csv.reader(csv_file, delimiter=',')
+        line_count = 0
+        for row in csv_reader:
+            if line_count == 0:
+                print(f'Column names are {", ".join(row)}')
+                line_count += 1
+            else:
+                print("question: ", row[0])
+                print("answer: ", row[1])
+                line_count += 1
+
+
 def prepare_data():
     print("Prepare data")
-    lines = read_text('train.txt', CONTEXT_PAIR_COUNT)
+    lines, test_data = prepare_Persona_chat('train.txt', CONTEXT_PAIR_COUNT)
     tokenized_lines = []
     for line in lines:
         tokenized_lines.append(tokenize_and_join(line, nlp))
 
-    lines = tokenized_lines
-    create_data('train.csv', lines, 0, int(len(lines) * 9 / 10))
-    create_data('valid.csv', lines, int(len(lines) * 9 / 10), len(lines))
-    create_data('test.csv', lines, int(len(lines) / 8), int(len(lines) * 3 / 8))
+    tokenized_test_data = []
+    for line in test_data:
+        tokenized_test_data.append(tokenize_and_join(line, nlp))
+
+    save_to_csv('train.csv', tokenized_lines, 0, int(len(tokenized_lines) * 9 / 10))
+    save_to_csv('valid.csv', tokenized_lines, int(len(tokenized_lines) * 9 / 10), len(tokenized_lines))
+    save_to_csv('test.csv', tokenized_test_data, 0, len(tokenized_test_data))
 
 
 def create_custom_tokenizer(nlp):
@@ -126,12 +161,6 @@ def create_custom_tokenizer(nlp):
 
 nlp = en_core_web_sm.load()
 nlp.tokenizer = create_custom_tokenizer(nlp)
-
-
-def tokenize(text: string, t):
-    tokens = [tok for tok in t.tokenizer(text) if not tok.text.isspace()]
-    text_tokens = [tok.text for tok in tokens]
-    return tokens, text_tokens
 
 
 class Attention(nn.Module):
@@ -301,8 +330,8 @@ class Encoder(nn.Module):
 
     def forward(self, input_sequence):
         # Convert input_sequence to word embeddings
-        embeds_q = self.embedder(input_sequence)
-        enc_q = self.dropout(embeds_q)
+        embeds_q = self.embedder(input_sequence).to(device)
+        enc_q = self.dropout(embeds_q).to(device)
         outputs, (hidden, cell) = self.lstm(enc_q)
         return hidden, cell
 
@@ -328,10 +357,10 @@ class Decoder(nn.Module):
 
     def forward(self, input, hidden, cell):
         input = input.unsqueeze(0)
-        embedded = self.embedder(input)
-        embedded = self.dropout(embedded)
+        embedded = self.embedder(input).to(device)
+        embedded = self.dropout(embedded).to(device)
         output, (hidden, cell) = self.lstm(embedded, (hidden, cell))
-        predicted = self.linear(output.squeeze(0))
+        predicted = self.linear(output.squeeze(0)).to(device)
         return predicted, hidden, cell
 
 
@@ -342,7 +371,6 @@ class Seq2Seq(nn.Module):
         self.decoder = decoder
 
     def forward(self, src, trg, teacher_forcing_ratio=0.5):
-        print("trg size: ", trg.size())
         batch_size = trg.shape[1]
         max_len = trg.shape[0]
         trg_vocab_size = self.decoder.output_dim
@@ -477,6 +505,7 @@ def main():
     if DEBUG:
         prepare_data()
         exit()
+
     config = {"train_batch_size": 80, "optimize_embeddings": False,
               "embedding_dim": 100, "hidden_dim": 200, "dropout_rate": 0.5, "num_layers": 2}
 
@@ -518,6 +547,7 @@ def main():
 
     if IS_TEST:
         model.load_state_dict(torch.load(MODEL_SAVE_PATH))
+        load_csv('test.csv')
         answer = test_model(TEST_QUESTION, fields, vocab, model)
         print("QUESTION: ", TEST_QUESTION)
         print("ANSWER: ", answer)
