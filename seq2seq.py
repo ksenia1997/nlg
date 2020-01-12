@@ -23,7 +23,7 @@ CLIP = 10
 JOIN_TOKEN = " "
 TEST_QUESTION = "Hi, how are you?"
 CONTEXT_PAIR_COUNT = 0
-IS_TEST = True
+IS_TEST = False
 DEBUG = False
 WITH_DESCRIPTION = True
 MODEL_SAVE_PATH = 'seq2seq_model.pt'
@@ -320,13 +320,13 @@ class Encoder(nn.Module):
         self.n_layers = config["num_layers"]
         self.dropout_rate = config['dropout_rate']
 
-        self.embedder = nn.Embedding(len(vocab), self.embedding_dim)
+        self.embedder = nn.Embedding(len(vocab), self.embedding_dim).to(device)
         self.lstm = torch.nn.LSTM(
             self.embedding_dim,
             self.hidden_dim,
             self.n_layers,
-            dropout=float(self.dropout_rate))
-        self.dropout = nn.Dropout(self.dropout_rate)
+            dropout=float(self.dropout_rate)).to(device)
+        self.dropout = nn.Dropout(self.dropout_rate).to(device)
 
     def forward(self, input_sequence):
         # Convert input_sequence to word embeddings
@@ -346,14 +346,14 @@ class Decoder(nn.Module):
         self.n_layers = config["num_layers"]
         self.dropout_rate = config['dropout_rate']
 
-        self.embedder = nn.Embedding(self.output_dim, self.embedding_dim)
+        self.embedder = nn.Embedding(self.output_dim, self.embedding_dim).to(device)
         self.lstm = torch.nn.LSTM(
             self.embedding_dim,
             self.hidden_dim,
             self.n_layers,
-            dropout=float(self.dropout_rate))
-        self.linear = nn.Linear(self.hidden_dim, self.output_dim)
-        self.dropout = nn.Dropout(self.dropout_rate)
+            dropout=float(self.dropout_rate)).to(device)
+        self.linear = nn.Linear(self.hidden_dim, self.output_dim).to(device)
+        self.dropout = nn.Dropout(self.dropout_rate).to(device)
 
     def forward(self, input, hidden, cell):
         input = input.unsqueeze(0)
@@ -367,14 +367,14 @@ class Decoder(nn.Module):
 class Seq2Seq(nn.Module):
     def __init__(self, encoder, decoder):
         super().__init__()
-        self.encoder = encoder
-        self.decoder = decoder
+        self.encoder = encoder.to(device)
+        self.decoder = decoder.to(device)
 
     def forward(self, src, trg, teacher_forcing_ratio=0.5):
         batch_size = trg.shape[1]
         max_len = trg.shape[0]
         trg_vocab_size = self.decoder.output_dim
-        outputs = torch.zeros(max_len, batch_size, trg_vocab_size)
+        outputs = torch.zeros(max_len, batch_size, trg_vocab_size).to(device)
         hidden, cell = self.encoder(src)
         input = trg[0, :]
 
@@ -385,7 +385,7 @@ class Seq2Seq(nn.Module):
             top1 = output.max(1)[1]
             input = (trg[t] if use_teacher_force else top1)
 
-        return outputs
+        return outputs.to(device)
 
 
 def train(model, iterator, optimizer, criterion, clip):
