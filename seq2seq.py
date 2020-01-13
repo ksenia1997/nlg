@@ -106,15 +106,16 @@ def save_to_csv(name, lines, from_line, to_line):
 def load_csv(name):
     with open(name) as csv_file:
         csv_reader = csv.reader(csv_file, delimiter=',')
+        lines = []
         line_count = 0
         for row in csv_reader:
             if line_count == 0:
-                print(f'Column names are {", ".join(row)}')
                 line_count += 1
             else:
-                print("question: ", row[0])
-                print("answer: ", row[1])
+                lines.append(row[0])
+                lines.append(row[1])
                 line_count += 1
+    return lines
 
 
 def prepare_data():
@@ -184,14 +185,15 @@ class Attention(nn.Module):
 
 
 def greedy_search(model, vocab, fields, trg_indexes, hidden, cell, max_len):
+    trg = []
     for i in range(max_len):
         trg_tensor = torch.LongTensor([trg_indexes[-1]]).to(device)
         predicted, hidden, cell = model.decoder(trg_tensor, hidden, cell)
         pred_token = predicted.argmax(1).item()
-        trg_indexes.append(pred_token)
+        trg.append(pred_token)
         if pred_token == vocab.stoi[fields['answer'].eos_token]:
             break
-        return [vocab.itos[i] for i in trg_indexes]
+    return [vocab.itos[i] for i in trg]
 
 
 class BeamSearchNode(object):
@@ -223,8 +225,8 @@ def beam_decode(decoder, vocab, fields, target_tensor, decoder_hiddens, encoder_
     :return: decoded_batch
     '''
     print("Beam decode")
-    beam_width = 20
-    topk = 3  # how many sentence do you want to generate
+    beam_width = 3
+    topk = 2  # how many sentence do you want to generate
     decoded_batch = []
     EOS_token = fields['answer'].eos_token
     SOS_token = fields['answer'].init_token
@@ -250,7 +252,7 @@ def beam_decode(decoder, vocab, fields, target_tensor, decoder_hiddens, encoder_
         # start beam search
         while True:
             # give up when decoding takes too long
-            if qsize > 1000: break
+            if qsize > 100: break
 
             # fetch the best node
             score, n = nodes.get()
@@ -477,8 +479,8 @@ def test_model(example, fields, vocab, model, max_len=10):
     hidden, cell = model.encoder(src_tensor)
     trg_indexes = [vocab.stoi[fields['answer'].init_token]]
     trg_tensor = torch.LongTensor([trg_indexes[-1]]).to(device)
-    trg_tensor = beam_decode(model.decoder, vocab, fields, trg_tensor, hidden, cell)
-
+    # trg_tensor = beam_decode(model.decoder, vocab, fields, trg_tensor, hidden, cell)
+    trg_tensor = greedy_search(model, vocab, fields, trg_tensor, hidden, cell, 10)
     return trg_tensor
 
 
@@ -546,11 +548,12 @@ def main():
     model = Seq2Seq(enc, dec)
 
     if IS_TEST:
-        model.load_state_dict(torch.load(MODEL_SAVE_PATH))
-        load_csv('test.csv')
-        answer = test_model(TEST_QUESTION, fields, vocab, model)
-        print("QUESTION: ", TEST_QUESTION)
-        print("ANSWER: ", answer)
+        model.load_state_dict(torch.load(MODEL_SAVE_PATH, map_location=torch.device(device)))
+        test_data = load_csv('test.csv')
+        for i in range(0, 10, 2):
+            answer = test_model(test_data[i], fields, vocab, model)
+            print("QUESTION: ", test_data[i])
+            print("ANSWER: ", answer)
     else:
         train_model(model, fields, train_iter, valid_iter)
 
