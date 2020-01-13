@@ -506,7 +506,7 @@ def main():
         prepare_data()
         exit()
 
-    config = {"train_batch_size": 80, "optimize_embeddings": False,
+    config = {"train_batch_size": 30, "optimize_embeddings": False,
               "embedding_dim": 100, "hidden_dim": 200, "dropout_rate": 0.5, "num_layers": 2}
 
     # Specify Fields in our dataset
