@@ -16,6 +16,8 @@ import math
 import torch.nn.functional as F
 import operator
 from queue import PriorityQueue
+import numpy as np
+import time
 
 SEED = 5  # set seed value for deterministic results
 N_EPOCHS = 15
@@ -25,9 +27,12 @@ JOIN_TOKEN = " "
 
 TEST_QUESTION = "Hi, how are you?"
 DATA_TYPE = "TWITTER"  # TWITTER or PERSONA
+WITH_DESCRIPTION = True
+IS_BEAM_SEARCH = False
+
 IS_TEST = False
 DEBUG = False
-WITH_DESCRIPTION = True
+
 # model_embeddingDim_hiddenDim_dropoutRate_numLayers_Epochs_batchSize
 MODEL_SAVE_PATH = 'seq2seq_model.pt'
 
@@ -39,6 +44,32 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 random.seed(SEED)
 torch.manual_seed(SEED)
 torch.backends.cudnn.deterministic = True
+
+
+def save_to_csv(name, lines):
+    with open(name, mode='w') as csv_file:
+        fieldnames = ['question', 'answer']
+        writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
+        writer.writeheader()
+        if len(lines) % 2 != 0:
+            lines = lines[:-1]
+        for i in range(0, len(lines), 2):
+            writer.writerow({'question': lines[i], 'answer': lines[i + 1]})
+
+
+def load_csv(name):
+    with open(name) as csv_file:
+        csv_reader = csv.reader(csv_file, delimiter=',')
+        lines = []
+        line_count = 0
+        for row in csv_reader:
+            if line_count == 0:
+                line_count += 1
+            else:
+                lines.append(row[0])
+                lines.append(row[1])
+                line_count += 1
+    return lines
 
 
 def prepare_Twitter_data(filename):
@@ -133,32 +164,6 @@ def tokenize_and_join(text, t, jointoken=JOIN_TOKEN):
     return tokenized_text
 
 
-def save_to_csv(name, lines):
-    with open(name, mode='w') as csv_file:
-        fieldnames = ['question', 'answer']
-        writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
-        writer.writeheader()
-        if len(lines) % 2 != 0:
-            lines = lines[:-1]
-        for i in range(0, len(lines), 2):
-            writer.writerow({'question': lines[i], 'answer': lines[i + 1]})
-
-
-def load_csv(name):
-    with open(name) as csv_file:
-        csv_reader = csv.reader(csv_file, delimiter=',')
-        lines = []
-        line_count = 0
-        for row in csv_reader:
-            if line_count == 0:
-                line_count += 1
-            else:
-                lines.append(row[0])
-                lines.append(row[1])
-                line_count += 1
-    return lines
-
-
 def prepare_data():
     print("Prepare data")
     if DATA_TYPE == "PERSONA":
@@ -209,7 +214,7 @@ nlp = en_core_web_sm.load()
 nlp.tokenizer = create_custom_tokenizer(nlp)
 
 
-def greedy_search(model, vocab, fields, trg_indexes, hidden, cell, max_len):
+def greedy_decode(model, vocab, fields, trg_indexes, hidden, cell, max_len):
     trg = []
     for i in range(max_len):
         trg_tensor = torch.LongTensor([trg_indexes[-1]]).to(device)
@@ -339,66 +344,90 @@ def init_weights(m):
 
 
 class LuongDecoder(nn.Module):
-    def __init__(self, hidden_size, output_size, attention, n_layers=4, drop_prob=0.1):
+    def __init__(self, config, vocab, attention):
         super(LuongDecoder, self).__init__()
-        self.hidden_dim = hidden_size
-        self.output_dim = output_size
-        self.n_layers = n_layers
-        self.drop_prob = drop_prob
-
-        # Our Attention Mechanism is defined in a separate class
-        self.attention = attention
+        self.hidden_dim = config["hidden_dim"]
+        self.output_dim = len(vocab)
+        self.n_layers = config["num_layers"]
+        self.dropout = config["dropout_rate"]
+        self.attention_model = attention
 
         self.embedding = nn.Embedding(self.output_dim, self.hidden_dim)
-        self.dropout = nn.Dropout(self.drop_prob)
+        self.embedding_dropout = nn.Dropout(self.dropout)
         self.lstm = nn.LSTM(self.hidden_dim, self.hidden_dim, self.n_layers)
         self.classifier = nn.Linear(self.hidden_dim * 2, self.output_dim)
 
-    def forward(self, inputs, hidden, cell, encoder_outputs):
+    def forward(self, input_seq, hidden, encoder_outputs):
         # Embed input words
-        embedded = self.embedding(inputs.unsqueeze(0))
-        embedded = self.dropout(embedded)
-        h = (hidden, cell)
-        # Passing previous output word (embedded) and hidden state into LSTM cell
-        lstm_out, h = self.lstm(embedded, h)
-
-        # Calculating Alignment Scores - see Attention class for the forward pass function
-        alignment_scores = self.attention(lstm_out, encoder_outputs)
-        # Softmaxing alignment scores to obtain Attention weights
-        attn_weights = F.softmax(alignment_scores.view(1, -1), dim=1)
-
-        # Multiplying Attention weights with encoder outputs to get context vector
-        context_vector = torch.bmm(attn_weights.unsqueeze(0), encoder_outputs)
-
-        # Concatenating output from LSTM with context vector
-        output = torch.cat((lstm_out, context_vector), -1)
-        # Pass concatenated vector through Linear layer acting as a Classifier
+        embedded = self.embedding(input_seq).unsqueeze(0)
+        embedded = self.embedding_dropout(embedded)
+        lstm_out, hidden = self.lstm(embedded, hidden)
+        alignment_scores = self.attention_model(lstm_out, encoder_outputs)
+        attn_weights = F.softmax(alignment_scores, dim=1)
+        context_vector = torch.bmm(attn_weights.unsqueeze(1), encoder_outputs)
+        output = torch.cat((lstm_out, context_vector.permute(1, 0, 2)), -1)
         output = F.log_softmax(self.classifier(output[0]), dim=1)
-        return output, h[0], h[1]
+        print("output: ", output.size())
+        print("hidden: ", hidden[0].size())
+        print("attn: ", attn_weights.size())
+        return output, hidden, attn_weights
 
 
 class Attention(nn.Module):
-    def __init__(self, hidden_size):
+    def __init__(self, batch_size, hidden_size, method='dot'):
         super(Attention, self).__init__()
-
+        self.method = method
         self.hidden_size = hidden_size
-        self.linear = nn.Linear(self.hidden_size * 2, self.hidden_size)
+        self.batch_size = batch_size
 
-    def dot_score(self, hidden_state, encoder_states):
-        return torch.sum(hidden_state * encoder_states, dim=2)
+        if self.method == 'general':
+            self.attn = nn.Linear(self.hidden_size, self.hidden_size)
 
-    def forward(self, hidden, encoder_outputs, mask):
-        batch_size = encoder_outputs.size(1)
-        hidden_size = encoder_outputs.size(2)
-        input_size = hidden.size(0)
-        attn = torch.bmm(encoder_outputs, hidden.transpose(1, 2))
-        attn_scores = self.dot_score(hidden, encoder_outputs)
-        # Transpose max_length and batch_size dimensions
-        attn_scores = attn_scores.t()
-        # Apply mask so network does not attend <pad> tokens
-        attn_scores = attn_scores.masked_fill(mask == 0, -1e10)
-        # Return softmax over attention scores
-        return F.softmax(attn_scores, dim=1).unsqueeze(1)
+        if self.method == 'concat':
+            self.attn = nn.Linear(self.hidden_size, self.hidden_size)
+            self.weight = nn.Parameter(torch.FloatTensor(self.batch_size, self.hidden_size))
+
+    def forward(self, decoder_hidden, encoder_outputs):
+        print("dec hidden: ", decoder_hidden.size())
+        print("encoder_out:", encoder_outputs.size())
+        decoder_hidden = decoder_hidden.permute(1, 0, 2)
+        print(decoder_hidden.size())
+        if self.method == "dot":
+            # For the dot scoring method, no weights or linear layers are involved
+            return encoder_outputs.bmm(decoder_hidden.view(1, -1, 1)).squeeze(-1)
+
+        elif self.method == "general":
+            # For general scoring, decoder hidden state is passed through linear layers to introduce a weight matrix
+            out = self.attn(decoder_hidden)
+            return encoder_outputs.bmm(out.view(1, -1, 1)).squeeze(-1)
+
+        elif self.method == "concat":
+            # For concat scoring, decoder hidden state and encoder outputs are concatenated first
+            out = torch.tanh(self.attn(decoder_hidden + encoder_outputs))
+            return out.bmm(self.weight.unsqueeze(-1)).squeeze(-1)
+    #     seq_len, batch_size, _ = encoder_outputs.size()
+    #     attn_energies = torch.zeros(batch_size, seq_len)  # B x S
+    #     # For each batch of encoder outputs
+    #     for b in range(batch_size):
+    #         # Calculate energy for each encoder output
+    #         for i in range(seq_len):
+    #             attn_energies[b, i] = self.score(decoder_hidden[:, b], encoder_outputs[i, b].unsqueeze(0))
+    #     return F.softmax(attn_energies).unsqueeze(1)
+    #
+    # def score(self, hidden, encoder_output):
+    #     if self.method == 'dot':
+    #         energy = hidden.dot(encoder_output)
+    #         return energy
+    #
+    #     elif self.method == 'general':
+    #         energy = self.attn(encoder_output)
+    #         energy = hidden.dot(energy)
+    #         return energy
+    #
+    #     elif self.method == 'concat':
+    #         energy = self.attn(torch.cat((hidden, encoder_output), 1))
+    #         energy = self.v.dot(energy)
+    #         return energy
 
 
 class BahdanauDecoder(nn.Module):
@@ -468,13 +497,11 @@ class Encoder(nn.Module):
 class Decoder(nn.Module):
     def __init__(self, config, vocab):
         super().__init__()
-
         self.embedding_dim = config["embedding_dim"]
         self.hidden_dim = config["hidden_dim"]
         self.output_dim = len(vocab)
         self.n_layers = config["num_layers"]
         self.dropout_rate = config['dropout_rate']
-
         self.embedder = nn.Embedding(self.output_dim, self.embedding_dim).to(device)
         self.lstm = torch.nn.LSTM(
             self.embedding_dim,
@@ -486,8 +513,10 @@ class Decoder(nn.Module):
 
     def forward(self, inputs, hidden, cell):
         inputs = inputs.unsqueeze(0)
+        # inputs [1,batch_size]
         embedded = self.embedder(inputs).to(device)
         embedded = self.dropout(embedded).to(device)
+        # embedded [1, batch_size, embedded_dim]
         output, (hidden, cell) = self.lstm(embedded, (hidden, cell))
         predicted = self.linear(output.squeeze(0)).to(device)
         return predicted, hidden, cell
@@ -504,17 +533,26 @@ class Seq2Seq(nn.Module):
             "Encoder and decoder must have equal number of layers!"
 
     def forward(self, src, trg, teacher_forcing_ratio=0.5):
+        # src [seq_len, batch_size]
+        # trg [seq_len, batch_size]
         max_len, batch_size = trg.size()
         trg_vocab_size = self.decoder.output_dim
         outputs = torch.zeros(max_len, batch_size, trg_vocab_size).to(device)
         enc_output, hidden, cell = self.encoder(src)
-        input = trg[0, :]
+        enc_output = enc_output.permute(1, 0, 2)
+        decoder_h = (hidden, cell)
+        decoder_input = trg[0, :]
+
+        # input [batch_size]
+        # input = trg[0, :]
+
         for t in range(1, max_len):
-            output, hidden, cell = self.decoder(input, hidden, cell)
+            output, decoder_h, attn_weights = self.decoder(decoder_input, decoder_h, enc_output)
+            # output, hidden, cell = self.decoder(input, hidden, cell)
             outputs[t] = output
             use_teacher_force = random.random() < teacher_forcing_ratio
             top1 = output.max(1)[1]
-            input = (trg[t] if use_teacher_force else top1)
+            decoder_input = (trg[t] if use_teacher_force else top1)
 
         return outputs.to(device)
 
@@ -605,11 +643,13 @@ def test_model(example, fields, vocab, model, max_len=10):
     tokenized = [fields['question'].init_token] + tokenized + [fields['question'].eos_token]
     numericalized = [vocab.stoi[t] for t in tokenized]
     src_tensor = torch.LongTensor(numericalized).unsqueeze(1).to(device)
-    hidden, cell = model.encoder(src_tensor)
+    output, hidden, cell = model.encoder(src_tensor)
     trg_indexes = [vocab.stoi[fields['answer'].init_token]]
     trg_tensor = torch.LongTensor([trg_indexes[-1]]).to(device)
-    # trg_tensor = beam_decode(model.decoder, vocab, fields, trg_tensor, hidden, cell)
-    trg_tensor = greedy_search(model, vocab, fields, trg_tensor, hidden, cell, 10)
+    if IS_BEAM_SEARCH:
+        trg_tensor = beam_decode(model.decoder, vocab, fields, trg_tensor, hidden, cell)
+    else:
+        trg_tensor = greedy_decode(model, vocab, fields, trg_tensor, hidden, cell, 10)
     return trg_tensor
 
 
@@ -637,7 +677,8 @@ def main():
         exit()
 
     config = {"train_batch_size": 5, "optimize_embeddings": False,
-              "embedding_dim": 100, "hidden_dim": 100, "dropout_rate": 0.1, "num_layers": 4}
+              "embedding_dim": 100, "hidden_dim": 100, "dropout_rate": 0.1, "num_layers": 4,
+              "attention_model": 'general'}
 
     # Specify Fields in our dataset
     data_fields = [('question', TEXT), ('answer', TEXT)]
@@ -674,17 +715,25 @@ def main():
             print(batch)
         else:
             break
+
+    attn = Attention(config["train_batch_size"], config["hidden_dim"], "concat")
     enc = Encoder(config, vocab).to(device)
-    dec = Decoder(config, vocab).to(device)
+    # dec = Decoder(config, vocab, attn).to(device)
+    dec = LuongDecoder(config, vocab, attn)
     model = Seq2Seq(enc, dec)
 
     if IS_TEST:
         model.load_state_dict(torch.load(MODEL_SAVE_PATH, map_location=torch.device(device)))
         test_data = load_csv('test.csv')
-        for i in range(0, 10, 2):
+        data_to_save = []
+        for i in range(0, len(test_data), 2):
             answer = test_model(test_data[i], fields, vocab, model)
+            data_to_save.append(test_data[i])
+            data_to_save.append(answer)
             print("QUESTION: ", test_data[i])
             print("ANSWER: ", answer)
+        filename_timestamp = time.strftime('%d-%m-%Y_%H:%M:%S') + ".csv"
+        save_to_csv(filename_timestamp, data_to_save)
     else:
         train_model(model, fields, train_iter, valid_iter)
 
