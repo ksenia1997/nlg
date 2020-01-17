@@ -22,11 +22,11 @@ import time
 SEED = 5  # set seed value for deterministic results
 N_EPOCHS = 15
 CLIP = 10
-CONTEXT_PAIR_COUNT = 0
+CONTEXT_PAIR_COUNT = 4
 JOIN_TOKEN = " "
 
 TEST_QUESTION = "Hi, how are you?"
-DATA_TYPE = "TWITTER"  # TWITTER or PERSONA
+DATA_TYPE = "PERSONA"  # TWITTER or PERSONA
 WITH_DESCRIPTION = True
 IS_BEAM_SEARCH = False
 
@@ -85,10 +85,7 @@ def prepare_Twitter_data(filename):
             if counter % 20 == 0:
                 test_data.append(line)
             counter += 1
-            # TODO: remove
-            if counter == 100:
-                return train_data, valid_data, test_data
-
+            
     return train_data, valid_data, test_data
 
 
@@ -367,9 +364,7 @@ class LuongDecoder(nn.Module):
         context_vector = torch.bmm(attn_weights.unsqueeze(1), encoder_outputs)
         output = torch.cat((lstm_out, context_vector.permute(1, 0, 2)), -1)
         output = F.log_softmax(self.classifier(output[0]), dim=1)
-        print("output: ", output.size())
-        print("hidden: ", hidden[0].size())
-        print("attn: ", attn_weights.size())
+       
         return output, hidden, attn_weights
 
 
@@ -388,10 +383,8 @@ class Attention(nn.Module):
             self.weight = nn.Parameter(torch.FloatTensor(self.batch_size, self.hidden_size))
 
     def forward(self, decoder_hidden, encoder_outputs):
-        print("dec hidden: ", decoder_hidden.size())
-        print("encoder_out:", encoder_outputs.size())
+       
         decoder_hidden = decoder_hidden.permute(1, 0, 2)
-        print(decoder_hidden.size())
         if self.method == "dot":
             # For the dot scoring method, no weights or linear layers are involved
             return encoder_outputs.bmm(decoder_hidden.view(1, -1, 1)).squeeze(-1)
