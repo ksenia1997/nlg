@@ -20,9 +20,9 @@ import numpy as np
 import time
 
 SEED = 5  # set seed value for deterministic results
-N_EPOCHS = 15
+N_EPOCHS = 20
 CLIP = 10
-CONTEXT_PAIR_COUNT = 4
+CONTEXT_PAIR_COUNT = 0
 JOIN_TOKEN = " "
 
 TEST_QUESTION = "Hi, how are you?"
@@ -31,7 +31,7 @@ WITH_DESCRIPTION = True
 IS_BEAM_SEARCH = False
 
 IS_TEST = False
-DEBUG = False
+DEBUG = True
 
 # model_embeddingDim_hiddenDim_dropoutRate_numLayers_Epochs_batchSize
 MODEL_SAVE_PATH = 'seq2seq_model.pt'
@@ -85,7 +85,7 @@ def prepare_Twitter_data(filename):
             if counter % 20 == 0:
                 test_data.append(line)
             counter += 1
-            
+
     return train_data, valid_data, test_data
 
 
@@ -351,7 +351,8 @@ class LuongDecoder(nn.Module):
 
         self.embedding = nn.Embedding(self.output_dim, self.hidden_dim)
         self.embedding_dropout = nn.Dropout(self.dropout)
-        self.lstm = nn.LSTM(self.hidden_dim, self.hidden_dim, self.n_layers)
+        self.lstm = nn.LSTM(self.hidden_dim, self.hidden_dim,
+                            self.n_layers)  # hidden state produced in the previous time step and the word embedding of the final output from the previous time step
         self.classifier = nn.Linear(self.hidden_dim * 2, self.output_dim)
 
     def forward(self, input_seq, hidden, encoder_outputs):
@@ -364,7 +365,7 @@ class LuongDecoder(nn.Module):
         context_vector = torch.bmm(attn_weights.unsqueeze(1), encoder_outputs)
         output = torch.cat((lstm_out, context_vector.permute(1, 0, 2)), -1)
         output = F.log_softmax(self.classifier(output[0]), dim=1)
-       
+
         return output, hidden, attn_weights
 
 
@@ -383,7 +384,7 @@ class Attention(nn.Module):
             self.weight = nn.Parameter(torch.FloatTensor(self.batch_size, self.hidden_size))
 
     def forward(self, decoder_hidden, encoder_outputs):
-       
+
         decoder_hidden = decoder_hidden.permute(1, 0, 2)
         if self.method == "dot":
             # For the dot scoring method, no weights or linear layers are involved
@@ -397,30 +398,10 @@ class Attention(nn.Module):
         elif self.method == "concat":
             # For concat scoring, decoder hidden state and encoder outputs are concatenated first
             out = torch.tanh(self.attn(decoder_hidden + encoder_outputs))
+            print("out: ", out.size())
+            print("weight: ", self.weight.size())
+            print("weight unsq: ", self.weight.unsqueeze(-1).size())
             return out.bmm(self.weight.unsqueeze(-1)).squeeze(-1)
-    #     seq_len, batch_size, _ = encoder_outputs.size()
-    #     attn_energies = torch.zeros(batch_size, seq_len)  # B x S
-    #     # For each batch of encoder outputs
-    #     for b in range(batch_size):
-    #         # Calculate energy for each encoder output
-    #         for i in range(seq_len):
-    #             attn_energies[b, i] = self.score(decoder_hidden[:, b], encoder_outputs[i, b].unsqueeze(0))
-    #     return F.softmax(attn_energies).unsqueeze(1)
-    #
-    # def score(self, hidden, encoder_output):
-    #     if self.method == 'dot':
-    #         energy = hidden.dot(encoder_output)
-    #         return energy
-    #
-    #     elif self.method == 'general':
-    #         energy = self.attn(encoder_output)
-    #         energy = hidden.dot(energy)
-    #         return energy
-    #
-    #     elif self.method == 'concat':
-    #         energy = self.attn(torch.cat((hidden, encoder_output), 1))
-    #         energy = self.v.dot(energy)
-    #         return energy
 
 
 class BahdanauDecoder(nn.Module):
@@ -540,7 +521,8 @@ class Seq2Seq(nn.Module):
         # input = trg[0, :]
 
         for t in range(1, max_len):
-            output, decoder_h, attn_weights = self.decoder(decoder_input, decoder_h, enc_output)
+            # output, decoder_h, attn_weights = self.decoder(decoder_input, decoder_h, enc_output)
+            output, hidden, cell = self.decoder(decoder_input, hidden, cell)
             # output, hidden, cell = self.decoder(input, hidden, cell)
             outputs[t] = output
             use_teacher_force = random.random() < teacher_forcing_ratio
@@ -670,7 +652,7 @@ def main():
         exit()
 
     config = {"train_batch_size": 5, "optimize_embeddings": False,
-              "embedding_dim": 100, "hidden_dim": 100, "dropout_rate": 0.1, "num_layers": 4,
+              "embedding_dim": 100, "hidden_dim": 256, "dropout_rate": 0.1, "num_layers": 4,
               "attention_model": 'general'}
 
     # Specify Fields in our dataset
@@ -711,8 +693,8 @@ def main():
 
     attn = Attention(config["train_batch_size"], config["hidden_dim"], "concat")
     enc = Encoder(config, vocab).to(device)
-    # dec = Decoder(config, vocab, attn).to(device)
-    dec = LuongDecoder(config, vocab, attn)
+    dec = Decoder(config, vocab).to(device)
+    # dec = LuongDecoder(config, vocab, attn)
     model = Seq2Seq(enc, dec)
 
     if IS_TEST:
