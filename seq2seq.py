@@ -31,7 +31,7 @@ WITH_DESCRIPTION = True
 IS_BEAM_SEARCH = False
 
 IS_TEST = False
-DEBUG = True
+DEBUG = False
 
 # model_embeddingDim_hiddenDim_dropoutRate_numLayers_Epochs_batchSize
 MODEL_SAVE_PATH = 'seq2seq_model.pt'
