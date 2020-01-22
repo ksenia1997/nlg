@@ -16,8 +16,8 @@ import math
 import torch.nn.functional as F
 import operator
 from queue import PriorityQueue
-import numpy as np
 import time
+from torch.nn.utils import clip_grad_norm_
 
 SEED = 5  # set seed value for deterministic results
 N_EPOCHS = 20
@@ -564,7 +564,7 @@ def train(model, iterator, optimizer, criterion, clip):
 
         # clip the gradients
         torch.nn.utils.clip_grad_norm_(model.parameters(), clip)
-
+        clip_grad_norm_(model.parameters(), 0.5)
         # update the parameters
         optimizer.step()
 
