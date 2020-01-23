@@ -18,16 +18,20 @@ import operator
 from queue import PriorityQueue
 import time
 from torch.nn.utils import clip_grad_norm_
+from tensorboardX import SummaryWriter
 
 SEED = 5  # set seed value for deterministic results
 N_EPOCHS = 20
 CLIP = 10
-CONTEXT_PAIR_COUNT = 0
+CONTEXT_PAIR_COUNT = 1
 JOIN_TOKEN = " "
 
 TEST_QUESTION = "Hi, how are you?"
+# Preprocess
 DATA_TYPE = "PERSONA"  # TWITTER or PERSONA
 WITH_DESCRIPTION = True
+
+WITH_ATTENTION = True
 IS_BEAM_SEARCH = False
 
 IS_TEST = False
@@ -359,6 +363,7 @@ class LuongDecoder(nn.Module):
         # Embed input words
         embedded = self.embedding(input_seq).unsqueeze(0)
         embedded = self.embedding_dropout(embedded)
+        # hidden = (hidden[0].detach(), hidden[1].detach())
         lstm_out, hidden = self.lstm(embedded, hidden)
         alignment_scores = self.attention_model(lstm_out, encoder_outputs)
         attn_weights = F.softmax(alignment_scores, dim=1)
@@ -398,45 +403,6 @@ class Attention(nn.Module):
             energy = self.attn(
                 torch.cat((decoder_hidden.expand(-1, encoder_outputs.size(1), -1), encoder_outputs), 2)).tanh()
             return torch.sum(self.weight * energy, dim=2)
-
-
-class BahdanauDecoder(nn.Module):
-    def __init__(self, config, vocab):
-        super(BahdanauDecoder, self).__init__()
-        self.hidden_dim = config["hidden_dim"]
-        self.output_dim = len(vocab)
-        self.n_layers = config["num_layers"]
-        self.dropout_rate = config['dropout_rate']
-
-        self.embedder = nn.Embedding(self.output_dim, self.hidden_dim).to(device)
-        self.fc_encoder = nn.Linear(self.hidden_dim, self.hidden_dim, bias=False).to(device)
-        self.fc_hidden = nn.Linear(self.hidden_dim, self.hidden_dim, bias=False).to(device)
-        self.weight = nn.Parameter(torch.FloatTensor(1, self.hidden_dim)).to(device)
-        self.attn_combine = nn.Linear(self.hidden_dim * 2, self.hidden_dim).to(device)
-        self.lstm = nn.LSTM(self.hidden_dim * 2, self.hidden_dim).to(device)
-        self.dropout = nn.Dropout(self.dropout_rate).to(device)
-        self.classifier = nn.Linear(self.hidden_dim, self.output_dim).to(device)
-
-    def forward(self, inputs, hidden, cell, enc_outputs):
-        enc_outputs = enc_outputs.squeeze()
-        h = (hidden, cell)
-        embedded = self.embedder(inputs).to(device).view(1, inputs.size(0), -1)
-        embedded = self.dropout(embedded).to(device)
-        x = torch.tanh(self.fc_hidden(h[0]) + self.fc_encoder(enc_outputs))
-
-        alignment_scores = torch.bmm(x, self.weight.unsqueeze(2))
-
-        attn_weights = F.softmax(alignment_scores.view(1, -1), dim=1)
-
-        context_vector = torch.bmm(attn_weights.unsqueeze(0),
-                                   enc_outputs.unsqueeze(0))
-        # concatenation
-        output = torch.cat((embedded, context_vector[0]), 1).unsqueeze(0)
-        # pass concatenated vector as lstm input
-        output, hidden = self.lstm(output, hidden)
-        # pass lstm output through a Linear layer acting as a classifier
-        output = F.log_softmax(self.classifier(output[0]), dim=1)
-        return output, hidden[0], hidden[1]
 
 
 class Encoder(nn.Module):
@@ -493,13 +459,17 @@ class Decoder(nn.Module):
 
 
 class Seq2Seq(nn.Module):
-    def __init__(self, encoder, decoder):
+    def __init__(self, config, vocab):
         super().__init__()
-        self.encoder = encoder.to(device)
-        self.decoder = decoder.to(device)
-        assert encoder.hidden_dim == decoder.hidden_dim, \
+        self.encoder = Encoder(config, vocab).to(device)
+        if WITH_ATTENTION:
+            self.decoder = LuongDecoder(config, vocab).to(device)
+        else:
+            self.decoder = Decoder(config, vocab).to(device)
+
+        assert self.encoder.hidden_dim == self.decoder.hidden_dim, \
             "Hidden dimensions of encoder and decoder must be equal!"
-        assert encoder.n_layers == decoder.n_layers, \
+        assert self.encoder.n_layers == self.decoder.n_layers, \
             "Encoder and decoder must have equal number of layers!"
 
     def forward(self, src, trg, teacher_forcing_ratio=0.5):
@@ -513,12 +483,11 @@ class Seq2Seq(nn.Module):
         decoder_h = (hidden, cell)
         decoder_input = trg[0, :]
 
-        # input [batch_size]
-        # input = trg[0, :]
-
         for t in range(1, max_len):
-            output, decoder_h, attn_weights = self.decoder(decoder_input, decoder_h, enc_output)
-            # output, hidden, cell = self.decoder(decoder_input, hidden, cell)
+            if WITH_ATTENTION:
+                output, decoder_h, attn_weights = self.decoder(decoder_input, decoder_h, enc_output)
+            else:
+                output, hidden, cell = self.decoder(decoder_input, hidden, cell)
             outputs[t] = output
             use_teacher_force = random.random() < teacher_forcing_ratio
             top1 = output.max(1)[1]
@@ -630,10 +599,19 @@ def train_model(model, fields, train_iter, valid_iter):
     pad_idx = fields['question'].vocab.stoi[fields['answer'].pad_token]
     criterion = nn.CrossEntropyLoss(ignore_index=pad_idx)
     best_validation_loss = float('inf')
-
+    experiment_name = "train_" + time.strftime('%d-%m-%Y_%H:%M:%S')
+    tensorboard_log_dir = './tensorboard-logs/{}/'.format(experiment_name)
+    writer = SummaryWriter(tensorboard_log_dir)
     for epoch in range(N_EPOCHS):
         train_loss = train(model, train_iter, optimizer, criterion, CLIP)
         valid_loss = evaluate(model, valid_iter, criterion)
+        writer.add_scalar('train_loss', train_loss, epoch)
+        writer.add_scalar('valid_loss', valid_loss, epoch)
+        for name, param in model.named_parameters():
+            if param.grad is not None and not param.grad.data.is_sparse:
+                writer.add_histogram(f"gradients_wrt_hidden_{name}/",
+                                     param.grad.data.norm(p=2, dim=0),
+                                     global_step=epoch)
         if valid_loss < best_validation_loss:
             best_validation_loss = valid_loss
             torch.save(model.state_dict(), MODEL_SAVE_PATH)
@@ -686,10 +664,7 @@ def main():
         else:
             break
 
-    enc = Encoder(config, vocab).to(device)
-    # dec = Decoder(config, vocab).to(device)
-    dec = LuongDecoder(config, vocab).to(device)
-    model = Seq2Seq(enc, dec)
+    model = Seq2Seq(config, vocab)
 
     if IS_TEST:
         model.load_state_dict(torch.load(MODEL_SAVE_PATH, map_location=torch.device(device)))
