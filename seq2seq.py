@@ -34,7 +34,7 @@ WITH_DESCRIPTION = True
 WITH_ATTENTION = False
 IS_BEAM_SEARCH = False
 
-IS_TEST = False
+IS_TEST = True
 DEBUG = False
 
 # model_embeddingDim_hiddenDim_dropoutRate_numLayers_Epochs_batchSize
