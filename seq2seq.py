@@ -23,7 +23,7 @@ from tensorboardX import SummaryWriter
 SEED = 5  # set seed value for deterministic results
 N_EPOCHS = 20
 CLIP = 10
-CONTEXT_PAIR_COUNT = 1
+CONTEXT_PAIR_COUNT = 0
 JOIN_TOKEN = " "
 
 TEST_QUESTION = "Hi, how are you?"
@@ -31,7 +31,7 @@ TEST_QUESTION = "Hi, how are you?"
 DATA_TYPE = "PERSONA"  # TWITTER or PERSONA
 WITH_DESCRIPTION = True
 
-WITH_ATTENTION = True
+WITH_ATTENTION = False
 IS_BEAM_SEARCH = False
 
 IS_TEST = False
@@ -77,13 +77,14 @@ def load_csv(name):
 
 
 def prepare_Twitter_data(filename):
+    print("Reading Twitter data")
     train_data = []
     valid_data = []
     test_data = []
     counter = 0
     with open(filename) as fp:
         for line in fp:
-            train_data.append(line)
+            train_data.append(line[:15])
             if counter % 10 == 0:
                 valid_data.append(line)
             if counter % 20 == 0:
@@ -135,10 +136,10 @@ def prepare_Persona_chat(filename, context_pair_count):
                 if add_to_valid_data:
                     valid_data.append(your_persona_description + " # " + question[0])
                     valid_data.append(question_line + " # " + answer[0])
-                if add_to_test_data:
+                elif add_to_test_data:
                     test_data.append(question[0])
                     test_data.append(answer[0])
-                if context_pair_counter < context_pair_count or context_pair_count == 0:
+                elif context_pair_counter < context_pair_count or context_pair_count == 0:
                     question_line += " # " + question[0]
                     context_pair_counter += 1
                 else:
@@ -527,7 +528,8 @@ def train(model, iterator, optimizer, criterion, clip):
         # trg shape shape should be [(sequence_len - 1) * batch_size]
         # output shape should be [(sequence_len - 1) * batch_size, output_dim]
         loss = criterion(output[1:].view(-1, output.shape[2]), trg[1:].view(-1))
-
+        if i % 100 == 0:
+            print("Loss item: ", loss.item())
         # backward pass
         loss.backward()
 
