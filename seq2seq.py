@@ -554,7 +554,7 @@ def evaluate(model, iterator, criterion):
     Returns:
         epoch_loss: Average loss of the epoch.
     '''
-    print("Evaluate")
+
     #  some layers have different behavior during train/and evaluation (like BatchNorm, Dropout) so setting it matters.
     model.eval()
     # loss
@@ -577,8 +577,7 @@ def evaluate(model, iterator, criterion):
     return epoch_loss / len(iterator)
 
 
-def test_model(example, fields, vocab, model, max_len=10):
-    print("Test model")
+def test_model(example, fields, vocab, model):
     model.eval()
     _, tokenized = tokenize(example, nlp)
     tokenized = [fields['question'].init_token] + tokenized + [fields['question'].eos_token]
@@ -595,7 +594,6 @@ def test_model(example, fields, vocab, model, max_len=10):
 
 
 def train_model(model, fields, train_iter, valid_iter):
-    print("Train model")
     model.apply(init_weights)
     optimizer = optim.Adam(model.parameters())
     pad_idx = fields['question'].vocab.stoi[fields['answer'].pad_token]
@@ -619,6 +617,7 @@ def train_model(model, fields, train_iter, valid_iter):
             torch.save(model.state_dict(), MODEL_SAVE_PATH)
             print(
                 f'| Epoch: {epoch + 1:03} | Train Loss: {train_loss:.3f} | Train PPL: {math.exp(train_loss):7.3f} | Val. Loss: {valid_loss:.3f} | Val. PPL: {math.exp(valid_loss):7.3f} |')
+    writer.close()
 
 
 def main():
@@ -674,10 +673,14 @@ def main():
         data_to_save = []
         for i in range(0, len(test_data), 2):
             answer = test_model(test_data[i], fields, vocab, model)
+            answer_str = ""
+            for a in answer:
+                answer_str += a + " "
             data_to_save.append(test_data[i])
-            data_to_save.append(answer)
-            print("QUESTION: ", test_data[i])
-            print("ANSWER: ", answer)
+            data_to_save.append(answer_str)
+            if i % 100 == 0:
+                print("QUESTION: ", test_data[i])
+                print("ANSWER: ", answer_str)
         filename_timestamp = time.strftime('%d-%m-%Y_%H:%M:%S') + ".csv"
         save_to_csv(filename_timestamp, data_to_save)
     else:
