@@ -23,7 +23,7 @@ from tensorboardX import SummaryWriter
 SEED = 5  # set seed value for deterministic results
 N_EPOCHS = 20
 CLIP = 10
-CONTEXT_PAIR_COUNT = 1
+CONTEXT_PAIR_COUNT = 0
 JOIN_TOKEN = " "
 
 TEST_QUESTION = "Hi, how are you?"
@@ -31,10 +31,10 @@ TEST_QUESTION = "Hi, how are you?"
 DATA_TYPE = "PERSONA"  # TWITTER or PERSONA
 WITH_DESCRIPTION = True
 
-WITH_ATTENTION = True
+WITH_ATTENTION = False
 IS_BEAM_SEARCH = False
 
-IS_TEST = False
+IS_TEST = True
 DEBUG = False
 
 # model_embeddingDim_hiddenDim_dropoutRate_numLayers_Epochs_batchSize
