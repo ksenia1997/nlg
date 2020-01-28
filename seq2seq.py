@@ -1,44 +1,20 @@
+import math
+import operator
+import time
+from queue import PriorityQueue
+
 import torch
 import torch.nn as nn
-import re
-import en_core_web_sm
-import spacy
-import string
-from spacy.tokenizer import Tokenizer
-from torchtext.data import Field
-import csv
-from torchtext.data import TabularDataset
-from torchtext.data import BucketIterator
-from torchtext.vocab import GloVe
-import random
-import torch.optim as optim
-import math
 import torch.nn.functional as F
-import operator
-from queue import PriorityQueue
-import time
-from torch.nn.utils import clip_grad_norm_
+import torch.optim as optim
 from tensorboardX import SummaryWriter
+from torch.nn.utils import clip_grad_norm_
+from torchtext.data import BucketIterator
+from torchtext.data import Field
+from torchtext.data import TabularDataset
+from torchtext.vocab import GloVe
 
-SEED = 5  # set seed value for deterministic results
-N_EPOCHS = 20
-CLIP = 10
-CONTEXT_PAIR_COUNT = 0
-JOIN_TOKEN = " "
-
-TEST_QUESTION = "Hi, how are you?"
-# Preprocess
-DATA_TYPE = "PERSONA"  # TWITTER or PERSONA
-WITH_DESCRIPTION = True
-
-WITH_ATTENTION = False
-IS_BEAM_SEARCH = False
-
-IS_TEST = True
-DEBUG = False
-
-# model_embeddingDim_hiddenDim_dropoutRate_numLayers_Epochs_batchSize
-MODEL_SAVE_PATH = 'seq2seq_model.pt'
+from preprocessing import *
 
 # Create Field object
 # TEXT = data.Field(tokenize = 'spacy', lower=True, include_lengths = True, init_token = '<sos>',  eos_token = '<eos>')
@@ -48,172 +24,6 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 random.seed(SEED)
 torch.manual_seed(SEED)
 torch.backends.cudnn.deterministic = True
-
-
-def save_to_csv(name, lines):
-    with open(name, mode='w') as csv_file:
-        fieldnames = ['question', 'answer']
-        writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
-        writer.writeheader()
-        if len(lines) % 2 != 0:
-            lines = lines[:-1]
-        for i in range(0, len(lines), 2):
-            writer.writerow({'question': lines[i], 'answer': lines[i + 1]})
-
-
-def load_csv(name):
-    with open(name) as csv_file:
-        csv_reader = csv.reader(csv_file, delimiter=',')
-        lines = []
-        line_count = 0
-        for row in csv_reader:
-            if line_count == 0:
-                line_count += 1
-            else:
-                lines.append(row[0])
-                lines.append(row[1])
-                line_count += 1
-    return lines
-
-
-def prepare_Twitter_data(filename):
-    print("Reading Twitter data")
-    train_data = []
-    valid_data = []
-    test_data = []
-    counter = 0
-    with open(filename) as fp:
-        for line in fp:
-            train_data.append(line[:15])
-            if counter % 10 == 0:
-                valid_data.append(line)
-            if counter % 20 == 0:
-                test_data.append(line)
-            counter += 1
-
-    return train_data, valid_data, test_data
-
-
-def prepare_Persona_chat(filename, context_pair_count):
-    print("Reading Persona chat")
-    train_data = []
-    test_data = []
-    valid_data = []
-    context_pair_counter = 0
-    line_counter = 0
-
-    your_persona_description = ""
-    add_to_test_data = True
-    add_to_valid_data = True
-    with open(filename) as fp:
-        question_line = ""
-        for line in fp:
-            line_counter += 1
-            if line == '\n':
-                question_line = ""
-                if random.randint(0, 100) < 5:
-                    add_to_test_data = True
-                    test_data.append("\n")
-                    test_data.append("\n")
-                else:
-                    add_to_test_data = False
-                if line_counter % 5 == 0:
-                    add_to_valid_data = True
-                else:
-                    add_to_valid_data = False
-            your_persona = re.findall(r"(your persona:.*\\n)", line)
-            if WITH_DESCRIPTION and len(your_persona) > 0:
-                your_persona = re.sub(r"\\n", '', your_persona[0]).split("your persona: ")
-                your_persona_description = ' # '.join(your_persona[1:])
-                question_line += your_persona_description
-            line = re.sub(r"(your persona:.*\\n)", ' ', line)
-            line = ' '.join(line.split())
-            question = re.findall(r"text:(.*)labels:", line)
-            answer = re.findall(r"labels:(.*)episode_done:", line)
-            if len(answer) == 0:
-                answer = re.findall(r"labels:(.*)question:", line)
-            if len(answer) and len(question):
-                if add_to_valid_data:
-                    valid_data.append(your_persona_description + " # " + question[0])
-                    valid_data.append(question_line + " # " + answer[0])
-                elif add_to_test_data:
-                    test_data.append(question[0])
-                    test_data.append(answer[0])
-                elif context_pair_counter < context_pair_count or context_pair_count == 0:
-                    question_line += " # " + question[0]
-                    context_pair_counter += 1
-                else:
-                    question_line = your_persona_description + " # " + question[0]
-                    context_pair_counter = 0
-                answer_line = question_line + " # " + answer[0]
-                train_data.append(question_line)
-                train_data.append(answer_line)
-                question_line = answer_line
-
-    return train_data, valid_data, test_data
-
-
-def tokenize(text: string, t):
-    tokens = [tok for tok in t.tokenizer(text) if not tok.text.isspace()]
-    text_tokens = [tok.text for tok in tokens]
-    return tokens, text_tokens
-
-
-def tokenize_and_join(text, t, jointoken=JOIN_TOKEN):
-    tokenized_text = []
-    for sentnence in text:
-        tokenized_text.append(jointoken.join(tokenize(sentnence, t)[1]))
-    return tokenized_text
-
-
-def prepare_data():
-    print("Prepare data")
-    if DATA_TYPE == "PERSONA":
-        train_data, valid_data, test_data = prepare_Persona_chat('persona_chat.txt', CONTEXT_PAIR_COUNT)
-    elif DATA_TYPE == "TWITTER":
-        train_data, valid_data, test_data = prepare_Twitter_data('twitter_chat.txt')
-
-    tokenized_train_data = tokenize_and_join(train_data, nlp)
-    tokenized_valid_data = tokenize_and_join(valid_data, nlp)
-    tokenized_test_data = tokenize_and_join(test_data, nlp)
-
-    print("train data: ", len(tokenized_train_data))
-    print("valid data: ", len(tokenized_valid_data))
-    print("test data: ", len(tokenized_test_data))
-
-    save_to_csv('train.csv', tokenized_train_data)
-    save_to_csv('valid.csv', tokenized_valid_data)
-    save_to_csv('test.csv', tokenized_test_data)
-
-
-def create_custom_tokenizer(nlp):
-    print("Creating custom tokenizer")
-    custom_prefixes = [r'[0-9]+', r'\~', r'\–', r'\—', r'\$']
-    custom_infixes = [r'[!&:,()]', r'\.', r'\-', r'\–', r'\—', r'\$']
-    custom_suffixes = [r'\.', r'\–', r'\—', r'\$']
-    default_prefixes = list(nlp.Defaults.prefixes) + custom_prefixes
-    default_prefixes.remove(r'US\$')
-    default_prefixes.remove(r'C\$')
-    default_prefixes.remove(r'A\$')
-
-    all_prefixes_re = spacy.util.compile_prefix_regex(tuple(default_prefixes))
-    infix_re = spacy.util.compile_infix_regex(tuple(list(nlp.Defaults.infixes) + custom_infixes))
-    suffix_re = spacy.util.compile_suffix_regex(tuple(list(nlp.Defaults.suffixes) + custom_suffixes))
-
-    rules = dict(nlp.Defaults.tokenizer_exceptions)
-    # remove "a." to "z." rules so "a." gets tokenized as a|.
-    for c in range(ord("a"), ord("z") + 1):
-        if f"{chr(c)}." in rules:
-            rules.pop(f"{chr(c)}.")
-
-    return Tokenizer(nlp.vocab, rules,
-                     prefix_search=all_prefixes_re.search,
-                     infix_finditer=infix_re.finditer, suffix_search=suffix_re.search,
-                     token_match=None)
-
-
-nlp = en_core_web_sm.load()
-nlp.tokenizer = create_custom_tokenizer(nlp)
 
 
 def greedy_decode(model, vocab, fields, trg_indexes, hidden, cell, max_len):
@@ -593,7 +403,7 @@ def test_model(example, fields, vocab, model):
     return trg_tensor
 
 
-def train_model(model, fields, train_iter, valid_iter):
+def fit_model(model, fields, train_iter, valid_iter):
     model.apply(init_weights)
     optimizer = optim.Adam(model.parameters())
     pad_idx = fields['question'].vocab.stoi[fields['answer'].pad_token]
@@ -678,13 +488,13 @@ def main():
                 answer_str += a + " "
             data_to_save.append(test_data[i])
             data_to_save.append(answer_str)
-            if i % 100 == 0:
+            if i % 1000 == 0:
                 print("QUESTION: ", test_data[i])
                 print("ANSWER: ", answer_str)
         filename_timestamp = time.strftime('%d-%m-%Y_%H:%M:%S') + ".csv"
         save_to_csv(filename_timestamp, data_to_save)
     else:
-        train_model(model, fields, train_iter, valid_iter)
+        fit_model(model, fields, train_iter, valid_iter)
 
 
 if __name__ == "__main__":
