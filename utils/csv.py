@@ -2,7 +2,6 @@ import csv
 
 
 def save_to_csv(name, lines):
-    name = "./tests/" + name
     with open(name, mode='w') as csv_file:
         fieldnames = ['question', 'answer']
         writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
