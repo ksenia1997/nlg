@@ -436,7 +436,7 @@ def main():
         exit()
 
     config = {"train_batch_size": 5, "optimize_embeddings": False,
-              "embedding_dim": 100, "hidden_dim": 256, "dropout_rate": 0.1, "num_layers": 4,
+              "embedding_dim": 100, "hidden_dim": 256, "dropout_rate": 0.1, "num_layers": 1,
               "attention_model": 'concat'}
 
     # Specify Fields in our dataset
