@@ -283,6 +283,10 @@ class Seq2Seq(nn.Module):
         assert self.encoder.n_layers == self.decoder.n_layers, \
             "Encoder and decoder must have equal number of layers!"
 
+        experiment_name = "train_" + time.strftime('%d-%m-%Y_%H:%M:%S')
+        tensorboard_log_dir = './tensorboard-logs/{}/'.format(experiment_name)
+        self.tb = SummaryWriter(tensorboard_log_dir)
+
     def forward(self, src, trg, teacher_forcing_ratio=0.5):
         # src [seq_len, batch_size]
         # trg [seq_len, batch_size]
@@ -307,7 +311,7 @@ class Seq2Seq(nn.Module):
         return outputs.to(device)
 
 
-def train(model, iterator, optimizer, criterion, clip):
+def train(model, iterator, optimizer, criterion):
     ''' Training loop for the model to train.
     Args:
         model: A Seq2Seq model instance.
@@ -333,19 +337,15 @@ def train(model, iterator, optimizer, criterion, clip):
         # output is of shape [sequence_len, batch_size, output_dim]
         output = model(src, trg)
 
-        # loss function works only 2d logits, 1d targets
-        # so flatten the trg, output tensors. Ignore the <sos> token
         # trg shape shape should be [(sequence_len - 1) * batch_size]
         # output shape should be [(sequence_len - 1) * batch_size, output_dim]
         loss = criterion(output[1:].view(-1, output.shape[2]), trg[1:].view(-1))
-        if i % 100 == 0:
-            print("Loss item: ", loss.item())
         # backward pass
         loss.backward()
 
         # clip the gradients
-        torch.nn.utils.clip_grad_norm_(model.parameters(), clip)
-        clip_grad_norm_(model.parameters(), 0.5)
+        clip_grad_norm_(model.parameters(), CLIP)
+
         # update the parameters
         optimizer.step()
 
@@ -365,9 +365,8 @@ def evaluate(model, iterator, criterion):
         epoch_loss: Average loss of the epoch.
     '''
 
-    #  some layers have different behavior during train/and evaluation (like BatchNorm, Dropout) so setting it matters.
     model.eval()
-    # loss
+
     epoch_loss = 0
 
     # we don't need to update the model parameters. only forward pass.
@@ -377,14 +376,39 @@ def evaluate(model, iterator, criterion):
             trg = batch.answer
 
             output = model(src, trg, 0)  # turn off the teacher forcing
-            # loss function works only 2d logits, 1d targets
-            # so flatten the trg, output tensors. Ignore the <sos> token
+
             # trg shape shape should be [(sequence_len - 1) * batch_size]
             # output shape should be [(sequence_len - 1) * batch_size, output_dim]
             loss = criterion(output[1:].view(-1, output.shape[2]), trg[1:].view(-1))
-
             epoch_loss += loss.item()
-    return epoch_loss / len(iterator)
+            if i % 1000 == 0:
+                print("eval loss: ", epoch_loss / i)
+        return epoch_loss / len(iterator)
+
+
+def fit_model(model, fields, train_iter, valid_iter):
+    model.apply(init_weights)
+    optimizer = optim.Adam(model.parameters())
+    pad_idx = fields['question'].vocab.stoi[fields['answer'].pad_token]
+    criterion = nn.CrossEntropyLoss(ignore_index=pad_idx)
+    best_validation_loss = float('inf')
+
+    for epoch in range(N_EPOCHS):
+        train_loss = train(model, train_iter, optimizer, criterion)
+        valid_loss = evaluate(model, valid_iter, criterion)
+        model.tb.add_scalar('train_loss', train_loss, epoch)
+        model.tb.add_scalar('valid_loss', valid_loss, epoch)
+        for name, param in model.named_parameters():
+            if param.grad is not None and not param.grad.data.is_sparse:
+                model.tb.add_histogram(f"gradients_wrt_hidden_{name}/",
+                                       param.grad.data.norm(p=2, dim=0),
+                                       global_step=epoch)
+        if valid_loss < best_validation_loss:
+            best_validation_loss = valid_loss
+            torch.save(model.state_dict(), MODEL_SAVE_PATH)
+            print(
+                f'| Epoch: {epoch + 1:03} | Train Loss: {train_loss:.3f} | Train PPL: {math.exp(train_loss):7.3f} | Val. Loss: {valid_loss:.3f} | Val. PPL: {math.exp(valid_loss):7.3f} |')
+    model.tb.close()
 
 
 def test_model(example, fields, vocab, model):
@@ -401,33 +425,6 @@ def test_model(example, fields, vocab, model):
     else:
         trg_tensor = greedy_decode(model, vocab, fields, trg_tensor, hidden, cell, 10)
     return trg_tensor
-
-
-def fit_model(model, fields, train_iter, valid_iter):
-    model.apply(init_weights)
-    optimizer = optim.Adam(model.parameters())
-    pad_idx = fields['question'].vocab.stoi[fields['answer'].pad_token]
-    criterion = nn.CrossEntropyLoss(ignore_index=pad_idx)
-    best_validation_loss = float('inf')
-    experiment_name = "train_" + time.strftime('%d-%m-%Y_%H:%M:%S')
-    tensorboard_log_dir = './tensorboard-logs/{}/'.format(experiment_name)
-    writer = SummaryWriter(tensorboard_log_dir)
-    for epoch in range(N_EPOCHS):
-        train_loss = train(model, train_iter, optimizer, criterion, CLIP)
-        valid_loss = evaluate(model, valid_iter, criterion)
-        writer.add_scalar('train_loss', train_loss, epoch)
-        writer.add_scalar('valid_loss', valid_loss, epoch)
-        for name, param in model.named_parameters():
-            if param.grad is not None and not param.grad.data.is_sparse:
-                writer.add_histogram(f"gradients_wrt_hidden_{name}/",
-                                     param.grad.data.norm(p=2, dim=0),
-                                     global_step=epoch)
-        if valid_loss < best_validation_loss:
-            best_validation_loss = valid_loss
-            torch.save(model.state_dict(), MODEL_SAVE_PATH)
-            print(
-                f'| Epoch: {epoch + 1:03} | Train Loss: {train_loss:.3f} | Train PPL: {math.exp(train_loss):7.3f} | Val. Loss: {valid_loss:.3f} | Val. PPL: {math.exp(valid_loss):7.3f} |')
-    writer.close()
 
 
 def main():
@@ -468,7 +465,7 @@ def main():
                                 repeat=False,
                                 device=device)
 
-    print("Most common: ", vocab.freqs.most_common(50))
+    # print("Most common: ", vocab.freqs.most_common(50))
     for i, batch in enumerate(train_iter):
         if i < 2:
             print(batch)
