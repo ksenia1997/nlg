@@ -491,8 +491,8 @@ def main():
             if i % 1000 == 0:
                 print("QUESTION: ", test_data[i])
                 print("ANSWER: ", answer_str)
-        filename_timestamp = time.strftime('%d-%m-%Y_%H:%M:%S') + ".csv"
-        save_to_csv(filename_timestamp, data_to_save)
+        file_path = "./tests/" + time.strftime('%d-%m-%Y_%H:%M:%S') + ".csv"
+        save_to_csv(file_path, data_to_save)
     else:
         fit_model(model, fields, train_iter, valid_iter)
 
