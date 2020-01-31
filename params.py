@@ -10,10 +10,14 @@ DATA_TYPE = "PERSONA"  # TWITTER or PERSONA
 WITH_DESCRIPTION = True
 CONTEXT_PAIR_COUNT = 0
 
-WITH_ATTENTION = True
+WITH_ATTENTION = False
 IS_BEAM_SEARCH = False
 
 IS_TEST = False
-DEBUG = False
+PREPARE_DATA = True
 
 MODEL_SAVE_PATH = 'seq2seq_model.pt'
+
+config = {"train_batch_size": 5, "optimize_embeddings": False,
+              "embedding_dim": 100, "hidden_dim": 512, "dropout_rate": 0.5, "num_layers": 2,
+              "attention_model": 'concat'}

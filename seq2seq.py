@@ -306,7 +306,7 @@ class Seq2Seq(nn.Module):
             outputs[t] = output
             use_teacher_force = random.random() < teacher_forcing_ratio
             top1 = output.max(1)[1]
-            decoder_input = (trg[t] if use_teacher_force else top1)
+            decoder_input = trg[t] if use_teacher_force else top1
 
         return outputs.to(device)
 
@@ -381,7 +381,7 @@ def evaluate(model, iterator, criterion):
             # output shape should be [(sequence_len - 1) * batch_size, output_dim]
             loss = criterion(output[1:].view(-1, output.shape[2]), trg[1:].view(-1))
             epoch_loss += loss.item()
-            if i % 1000 == 0:
+            if i + 1 % 1000 == 0:
                 print("eval loss: ", epoch_loss / i)
         return epoch_loss / len(iterator)
 
@@ -428,13 +428,9 @@ def test_model(example, fields, vocab, model):
 
 
 def main():
-    if DEBUG:
+    if PREPARE_DATA:
         prepare_data()
         exit()
-
-    config = {"train_batch_size": 5, "optimize_embeddings": False,
-              "embedding_dim": 100, "hidden_dim": 256, "dropout_rate": 0.1, "num_layers": 1,
-              "attention_model": 'concat'}
 
     # Specify Fields in our dataset
     data_fields = [('question', TEXT), ('answer', TEXT)]
