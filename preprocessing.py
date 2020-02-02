@@ -35,6 +35,7 @@ def prepare_Persona_chat(filename, context_pair_count):
     valid_data = []
     context_pair_counter = 0
     dialogue_counter = 1
+    delimiter_context_dialogue = " / "
 
     your_persona_description = ""
     add_to_test_data = False
@@ -42,49 +43,42 @@ def prepare_Persona_chat(filename, context_pair_count):
     with open(filename) as fp:
         question_line = ""
         for line in fp:
+            line = line.replace('__SILENCE__', 'blank')
             if line == '\n':
                 question_line = ""
                 dialogue_counter += 1
-                if random.randint(0, 100) < 5:
-                    add_to_test_data = True
-                    test_data.append("\n")
-                    test_data.append("\n")
-                else:
-                    add_to_test_data = False
                 if dialogue_counter % 5 == 0:
                     add_to_valid_data = True
                 else:
                     add_to_valid_data = False
+                    if random.randint(0, 100) < 5:
+                        add_to_test_data = True
+                        test_data.append("\n")
+                        test_data.append("\n")
+                    else:
+                        add_to_test_data = False
             your_persona = re.findall(r"(your persona:.*\\n)", line)
             if WITH_DESCRIPTION and len(your_persona) > 0:
                 your_persona = re.sub(r"\\n", '', your_persona[0]).split("your persona: ")
-                your_persona_description = ' # '.join(your_persona[1:])
-                print("your persona description: ", your_persona_description)
-                question_line += your_persona_description
+                your_persona_description = ' '.join(your_persona[1:])
+                question_line += your_persona_description + delimiter_context_dialogue
             line = re.sub(r"(your persona:.*\\n)", ' ', line)
             line = ' '.join(line.split())
-            print("Line without description: ", line)
             question = re.findall(r"text:(.*)labels:", line)
             answer = re.findall(r"labels:(.*)episode_done:", line)
-            print("Question: ", question)
-            print("Answer: ", answer)
             if len(answer) == 0:
                 answer = re.findall(r"labels:(.*)question:", line)
-            print("Also answer: ", answer)
             if len(answer) and len(question):
                 if add_to_valid_data:
-                    print("VALID")
                     question_line += " # " + question[0]
                     answer_line = question_line + " # " + answer[0]
                     valid_data.append(question_line)
                     valid_data.append(answer_line)
                     question_line = answer_line
                 elif add_to_test_data:
-                    print("TEST")
                     test_data.append(question[0])
                     test_data.append(answer[0])
                 else:
-                    print("TRAIN")
                     if context_pair_counter < context_pair_count or context_pair_count == 0:
                         question_line += " # " + question[0]
                         context_pair_counter += 1
@@ -92,8 +86,6 @@ def prepare_Persona_chat(filename, context_pair_count):
                         question_line = your_persona_description + " # " + question[0]
                         context_pair_counter = 0
                     answer_line = question_line + " # " + answer[0]
-                    print("QUESTION: ", question_line)
-                    print("ANSWER: ", answer_line)
                     train_data.append(question_line)
                     train_data.append(answer_line)
                     question_line = answer_line
