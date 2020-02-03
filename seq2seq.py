@@ -149,10 +149,7 @@ def beam_decode(decoder, vocab, fields, target_tensor, decoder_hiddens, encoder_
 
 def init_weights(m):
     for name, param in m.named_parameters():
-        if 'weight' in name:
-            nn.init.normal_(param.data, mean=0, std=0.01)
-        else:
-            nn.init.constant_(param.data, 0)
+        nn.init.uniform_(param.data, -0.08, 0.08)
 
 
 class LuongDecoder(nn.Module):
@@ -339,7 +336,7 @@ def train(model, iterator, optimizer, criterion):
 
         # trg shape shape should be [(sequence_len - 1) * batch_size]
         # output shape should be [(sequence_len - 1) * batch_size, output_dim]
-        loss = criterion(output[1:].view(-1, output.shape[2]), trg[1:].view(-1))
+        loss = criterion(output[:-1].view(-1, output.shape[2]), trg[:-1].view(-1))
         # backward pass
         loss.backward()
 

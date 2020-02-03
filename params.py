@@ -13,7 +13,7 @@ CONTEXT_PAIR_COUNT = 0
 WITH_ATTENTION = False
 IS_BEAM_SEARCH = False
 
-IS_TEST = True
+IS_TEST = False
 PREPARE_DATA = False
 
 MODEL_SAVE_PATH = 'seq2seq_model.pt'

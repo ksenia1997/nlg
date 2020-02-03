@@ -35,15 +35,26 @@ def prepare_Persona_chat(filename, context_pair_count):
     valid_data = []
     context_pair_counter = 0
     dialogue_counter = 1
-    delimiter_context_dialogue = " / "
+    delimiter_context_dialogue = " CC "
+    delimiter = " # "
+    delimiter_start = " SS "
+    delimiter_sep = " SEP "
+    delimiter_end = " EE "
 
     your_persona_description = ""
     add_to_test_data = False
     add_to_valid_data = False
+
+    arr_len_description = []
+    arr_len_question = []
+    arr_len_answer = []
+
+    append_description = False
+
     with open(filename) as fp:
         question_line = ""
         for line in fp:
-            line = line.replace('__SILENCE__', 'blank')
+            data = []
             if line == '\n':
                 question_line = ""
                 dialogue_counter += 1
@@ -59,8 +70,12 @@ def prepare_Persona_chat(filename, context_pair_count):
                         add_to_test_data = False
             your_persona = re.findall(r"(your persona:.*\\n)", line)
             if WITH_DESCRIPTION and len(your_persona) > 0:
+                append_description = True
                 your_persona = re.sub(r"\\n", '', your_persona[0]).split("your persona: ")
-                your_persona_description = ' '.join(your_persona[1:])
+                your_persona_description = delimiter.join(your_persona[1:])
+                your_persona_description = JOIN_TOKEN.join(tokenize(your_persona_description, nlp)[1])
+                arr_len_description.append(len(your_persona_description.split()))
+                #   persona # persona # persona # persona <context delimiter>
                 question_line += your_persona_description + delimiter_context_dialogue
             line = re.sub(r"(your persona:.*\\n)", ' ', line)
             line = ' '.join(line.split())
@@ -69,27 +84,35 @@ def prepare_Persona_chat(filename, context_pair_count):
             if len(answer) == 0:
                 answer = re.findall(r"labels:(.*)question:", line)
             if len(answer) and len(question):
-                if add_to_valid_data:
-                    question_line += " # " + question[0]
-                    answer_line = question_line + " # " + answer[0]
-                    valid_data.append(question_line)
-                    valid_data.append(answer_line)
-                    question_line = answer_line
-                elif add_to_test_data:
-                    test_data.append(question[0])
-                    test_data.append(answer[0])
-                else:
-                    if context_pair_counter < context_pair_count or context_pair_count == 0:
-                        question_line += " # " + question[0]
-                        context_pair_counter += 1
-                    else:
-                        question_line = your_persona_description + " # " + question[0]
-                        context_pair_counter = 0
-                    answer_line = question_line + " # " + answer[0]
-                    train_data.append(question_line)
-                    train_data.append(answer_line)
-                    question_line = answer_line
+                question = JOIN_TOKEN.join(tokenize(question[0], nlp)[1])
+                answer = JOIN_TOKEN.join(tokenize(answer[0], nlp)[1])
+                question = question.replace('_ _ SILENCE _ _', '#S#')
+                answer = answer.replace('_ _ SILENCE _ _', '#S#')
+                arr_len_question.append(len(question.split()))
+                arr_len_answer.append(len(answer.split()))
 
+                if append_description:
+                    append_description = False
+                    data.append(question_line)
+                    data.append(question)
+                    question_line += delimiter_start
+                if context_pair_counter < context_pair_count or context_pair_count == 0:
+                    question_line += question + delimiter
+                    context_pair_counter += 1
+                else:
+                    question_line = your_persona_description + delimiter_context_dialogue + delimiter_sep + question
+                    context_pair_counter = 0
+
+                data.append(question_line)
+                data.append(answer)
+                if add_to_valid_data:
+                    valid_data += data
+                elif add_to_test_data:
+                    test_data.append(question)
+                    test_data.append(answer)
+                else:
+                    train_data += data
+                question_line = question_line + answer + delimiter
     return train_data, valid_data, test_data
 
 
@@ -97,13 +120,6 @@ def tokenize(text: string, t):
     tokens = [tok for tok in t.tokenizer(text) if not tok.text.isspace()]
     text_tokens = [tok.text for tok in tokens]
     return tokens, text_tokens
-
-
-def tokenize_and_join(text, t, jointoken=JOIN_TOKEN):
-    tokenized_text = []
-    for sentnence in text:
-        tokenized_text.append(jointoken.join(tokenize(sentnence, t)[1]))
-    return tokenized_text
 
 
 def create_custom_tokenizer(nlp):
@@ -143,14 +159,10 @@ def prepare_data():
     elif DATA_TYPE == "TWITTER":
         train_data, valid_data, test_data = prepare_Twitter_data('twitter_chat.txt')
 
-    tokenized_train_data = tokenize_and_join(train_data, nlp)
-    tokenized_valid_data = tokenize_and_join(valid_data, nlp)
-    tokenized_test_data = tokenize_and_join(test_data, nlp)
+    print("train data: ", len(train_data))
+    print("valid data: ", len(valid_data))
+    print("test data: ", len(test_data))
 
-    print("train data: ", len(tokenized_train_data))
-    print("valid data: ", len(tokenized_valid_data))
-    print("test data: ", len(tokenized_test_data))
-
-    save_to_csv('train.csv', tokenized_train_data)
-    save_to_csv('valid.csv', tokenized_valid_data)
-    save_to_csv('test.csv', tokenized_test_data)
+    save_to_csv('train.csv', train_data)
+    save_to_csv('valid.csv', valid_data)
+    save_to_csv('test.csv', test_data)
