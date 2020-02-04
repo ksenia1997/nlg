@@ -2,8 +2,8 @@
 .idea
 .ipynb_checkpoints/seq2seq-checkpoint.ipynb
 .vector_cache
-train.csv
-valid.csv
-test.csv
+datasets/train.csv
+datasets/valid.csv
+datasets/test.csv
 __pycache__
 utils/__pycache__

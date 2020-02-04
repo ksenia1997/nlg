@@ -8,7 +8,62 @@ from spacy.tokenizer import Tokenizer
 
 from params import *
 from utils.csv import *
+from itertools import zip_longest
 
+
+def personas_description(line, your_persona_description, partner_persona_description):
+    your_persona = re.findall(r"your persona:(.*)", line)
+    partner_persona = re.findall(r"partner's persona:(.*)", line)
+    is_start_conversation = False
+    if your_persona:
+        your_persona_description.append(your_persona[0])
+    else:
+        if partner_persona:
+            partner_persona_description.append(partner_persona[0])
+        else:
+            is_start_conversation = True
+    return is_start_conversation, your_persona_description, partner_persona_description
+
+
+def prepare_both_Persona_chat(filename):
+    with open(filename) as fp:
+        arr_len_utter1 = []
+        arr_len_utter2 = []
+        arr_len_y_descr = []
+        arr_len_p_descr = []
+        your_persona_description = []
+        partner_persona_description = []
+        counter = 0
+        for line in fp:
+            counter += 1
+            is_start_conversation, y, p = personas_description(line, your_persona_description, partner_persona_description)
+            if is_start_conversation:
+                your_persona_description = y
+                partner_persona_description = p
+
+                for yp in your_persona_description:
+                    arr_len_y_descr.append(len(yp.split()))
+                for pp in partner_persona_description:
+                    arr_len_p_descr.append(len(pp.split()))
+
+            sentences = line.split("\t")
+
+            # print("line: ", line.split("\t"))
+            if len(sentences) > 1:
+                utterance1 = re.findall(r"\d+ (.*)", sentences[0])[0]
+                utterance2 = sentences[1]
+                arr_len_utter1.append(len(utterance1.split()))
+                arr_len_utter2.append(len(utterance2.split()))
+                # print("U1 ", utterance1)
+                # print("U2 ", utterance2)
+
+    with open('datasets/description.csv', 'w', newline='') as myfile:
+        d = [arr_len_y_descr, arr_len_p_descr, arr_len_utter1, arr_len_utter2]
+        export_data = zip_longest(*d, fillvalue='')
+        wr = csv.writer(myfile, quoting=csv.QUOTE_ALL)
+        wr.writerow(['Your persona description length', 'Partner\'s persona description length', 'utterance1 length', 'utterance2 length'])
+        wr.writerows(export_data)
+    myfile.close()
 
 def prepare_Twitter_data(filename):
     print("Reading Twitter data")
@@ -155,14 +210,16 @@ nlp.tokenizer = create_custom_tokenizer(nlp)
 def prepare_data():
     print("Prepare data")
     if DATA_TYPE == "PERSONA":
-        train_data, valid_data, test_data = prepare_Persona_chat('persona_chat.txt', CONTEXT_PAIR_COUNT)
+        train_data, valid_data, test_data = prepare_Persona_chat('datasets/persona_chat.txt', CONTEXT_PAIR_COUNT)
     elif DATA_TYPE == "TWITTER":
-        train_data, valid_data, test_data = prepare_Twitter_data('twitter_chat.txt')
+        train_data, valid_data, test_data = prepare_Twitter_data('datasets/twitter_chat.txt')
+    elif DATA_TYPE == "PERSONA_BOTH":
+        prepare_both_Persona_chat('datasets/persona_chat_both.txt')
 
     print("train data: ", len(train_data))
     print("valid data: ", len(valid_data))
     print("test data: ", len(test_data))
 
-    save_to_csv('train.csv', train_data)
-    save_to_csv('valid.csv', valid_data)
-    save_to_csv('test.csv', test_data)
+    save_to_csv('datasets/train.csv', train_data)
+    save_to_csv('datasets/valid.csv', valid_data)
+    save_to_csv('datasets/test.csv', test_data)
