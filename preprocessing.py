@@ -33,7 +33,11 @@ def prepare_both_Persona_chat(filename):
         your_persona_description = []
         partner_persona_description = []
         counter = 0
+<<<<<<< HEAD
         add_description = True
+=======
+        print("Start")
+>>>>>>> a334671161977bef71b6814e787193a2260bd2c3
         for line in fp:
             counter += 1
             is_description, y, p = personas_description(line)
@@ -76,6 +80,7 @@ def prepare_both_Persona_chat(filename):
                 a_u2 += len(utterance2.split())
                 # print("U1 ", utterance1)
                 # print("U2 ", utterance2)
+<<<<<<< HEAD
     print("len y: ", len(arr_len_y_descr) )
     print("len p: ", len(arr_len_p_descr))
     print("len utr1: ", len(arr_len_utter1))
@@ -84,6 +89,14 @@ def prepare_both_Persona_chat(filename):
     print("a p: ", a_p / len(arr_len_p_descr))
     print("a u1: ", a_u1 / len(arr_len_utter1))
     print("a u2: ", a_u2 / len(arr_len_utter2))
+=======
+    print("start csv write")
+    print("arr len y descr: ", len(arr_len_y_descr))
+    print("arr len p descr: ", len(arr_len_p_descr))
+    print("arr len utr1: ", len(arr_len_utter1))
+    print("arr len utr2: ", len(arr_len_utter2))
+    exit()
+>>>>>>> a334671161977bef71b6814e787193a2260bd2c3
     with open('datasets/description.csv', 'w', newline='') as myfile:
         d = [arr_len_y_descr, arr_len_p_descr, arr_len_utter1, arr_len_utter2]
         export_data = zip_longest(*d, fillvalue='')
