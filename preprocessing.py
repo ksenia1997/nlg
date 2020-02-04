@@ -1,6 +1,7 @@
 import random
 import re
 import string
+from itertools import zip_longest
 
 import en_core_web_sm
 import spacy
@@ -8,21 +9,17 @@ from spacy.tokenizer import Tokenizer
 
 from params import *
 from utils.csv import *
-from itertools import zip_longest
 
 
-def personas_description(line, your_persona_description, partner_persona_description):
+def personas_description(line):
     your_persona = re.findall(r"your persona:(.*)", line)
     partner_persona = re.findall(r"partner's persona:(.*)", line)
-    is_start_conversation = False
     if your_persona:
-        your_persona_description.append(your_persona[0])
+        return True, your_persona[0], ""
+    elif partner_persona:
+        return True, "", partner_persona[0]
     else:
-        if partner_persona:
-            partner_persona_description.append(partner_persona[0])
-        else:
-            is_start_conversation = True
-    return is_start_conversation, your_persona_description, partner_persona_description
+        return False, "", ""
 
 
 def prepare_both_Persona_chat(filename):
@@ -31,21 +28,42 @@ def prepare_both_Persona_chat(filename):
         arr_len_utter2 = []
         arr_len_y_descr = []
         arr_len_p_descr = []
+        a_y, a_p = 0, 0
+        a_u1, a_u2 = 0, 0
         your_persona_description = []
         partner_persona_description = []
         counter = 0
+        add_description = True
         for line in fp:
             counter += 1
-            is_start_conversation, y, p = personas_description(line, your_persona_description, partner_persona_description)
-            if is_start_conversation:
-                your_persona_description = y
-                partner_persona_description = p
+            is_description, y, p = personas_description(line)
+            if is_description:
+                print("Y: ", y)
+                print("P: ", p)
+                add_description = True
+                if y != "":
 
-                for yp in your_persona_description:
-                    arr_len_y_descr.append(len(yp.split()))
-                for pp in partner_persona_description:
-                    arr_len_p_descr.append(len(pp.split()))
+                    your_persona_description.append(y)
+                    print("your perdona arr: ", your_persona_description)
+                if p != "":
+                    partner_persona_description.append(p)
+                    print("partner perdona arr: ", partner_persona_description)
+            else:
+                if add_description:
+                    add_description = False
+                    for yp in your_persona_description:
+                        arr_len_y_descr.append(len(yp.split()))
+                        a_y += len(yp.split())
+                    for pp in partner_persona_description:
+                        arr_len_p_descr.append(len(pp.split()))
+                        a_p += len(pp.split())
+                    your_persona_description = []
+                    partner_persona_description = []
 
+            print("len y: ", len(arr_len_y_descr))
+            print("len p: ", len(arr_len_p_descr))
+            print("len utr1: ", len(arr_len_utter1))
+            print("len uttr2: ", len(arr_len_utter2))
             sentences = line.split("\t")
 
             # print("line: ", line.split("\t"))
@@ -54,16 +72,27 @@ def prepare_both_Persona_chat(filename):
                 utterance2 = sentences[1]
                 arr_len_utter1.append(len(utterance1.split()))
                 arr_len_utter2.append(len(utterance2.split()))
+                a_u1 += len(utterance1.split())
+                a_u2 += len(utterance2.split())
                 # print("U1 ", utterance1)
                 # print("U2 ", utterance2)
-
+    print("len y: ", len(arr_len_y_descr) )
+    print("len p: ", len(arr_len_p_descr))
+    print("len utr1: ", len(arr_len_utter1))
+    print("len uttr2: ", len(arr_len_utter2))
+    print("a y: ", a_y / len(arr_len_y_descr))
+    print("a p: ", a_p / len(arr_len_p_descr))
+    print("a u1: ", a_u1 / len(arr_len_utter1))
+    print("a u2: ", a_u2 / len(arr_len_utter2))
     with open('datasets/description.csv', 'w', newline='') as myfile:
         d = [arr_len_y_descr, arr_len_p_descr, arr_len_utter1, arr_len_utter2]
         export_data = zip_longest(*d, fillvalue='')
         wr = csv.writer(myfile, quoting=csv.QUOTE_ALL)
-        wr.writerow(['Your persona description length', 'Partner\'s persona description length', 'utterance1 length', 'utterance2 length'])
+        wr.writerow(['Your persona description length', 'Partner\'s persona description length', 'utterance1 length',
+                     'utterance2 length'])
         wr.writerows(export_data)
     myfile.close()
+
 
 def prepare_Twitter_data(filename):
     print("Reading Twitter data")
