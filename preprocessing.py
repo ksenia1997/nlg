@@ -34,6 +34,7 @@ def prepare_both_Persona_chat(filename):
         your_persona_description = []
         partner_persona_description = []
         counter = 0
+        print("Start")
         for line in fp:
             counter += 1
             is_start_conversation, y, p = personas_description(line, your_persona_description, partner_persona_description)
@@ -56,7 +57,12 @@ def prepare_both_Persona_chat(filename):
                 arr_len_utter2.append(len(utterance2.split()))
                 # print("U1 ", utterance1)
                 # print("U2 ", utterance2)
-
+    print("start csv write")
+    print("arr len y descr: ", len(arr_len_y_descr))
+    print("arr len p descr: ", len(arr_len_p_descr))
+    print("arr len utr1: ", len(arr_len_utter1))
+    print("arr len utr2: ", len(arr_len_utter2))
+    exit()
     with open('datasets/description.csv', 'w', newline='') as myfile:
         d = [arr_len_y_descr, arr_len_p_descr, arr_len_utter1, arr_len_utter2]
         export_data = zip_longest(*d, fillvalue='')
