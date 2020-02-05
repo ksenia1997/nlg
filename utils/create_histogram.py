@@ -1,10 +1,10 @@
 import matplotlib.pyplot as plt
 
 
-def plot_histogram(title, xlabel, ylabel):
-    x = [0, 1, 2]
-    plt.hist(x, bins=3)
+def plot_histogram(title, xlabel, ylabel, data, bins_number, filename):
+    plt.hist(data, bins=bins_number, color='black')
     plt.xlabel(xlabel)
-    plt.ylabel()
+    plt.ylabel(ylabel)
     plt.title(title)
-    plt.show()
+    plt.savefig(filename)
+    # plt.show()

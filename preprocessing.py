@@ -1,7 +1,6 @@
 import random
 import re
 import string
-from itertools import zip_longest
 
 import en_core_web_sm
 import spacy
@@ -22,89 +21,80 @@ def personas_description(line):
         return False, "", ""
 
 
-def prepare_both_Persona_chat(filename):
+def prepare_both_Persona_chat(filename, pair_count):
+    print("BOTH")
     with open(filename) as fp:
-        arr_len_utter1 = []
-        arr_len_utter2 = []
-        arr_len_y_descr = []
-        arr_len_p_descr = []
-        a_y, a_p = 0, 0
-        a_u1, a_u2 = 0, 0
+        # arr_len_utter1 = []
+        # arr_len_utter2 = []
+        # arr_len_y_descr = []
+        # arr_len_p_descr = []
+        # a_y, a_p = 0, 0
+        # a_u1, a_u2 = 0, 0
         your_persona_description = []
         partner_persona_description = []
         counter = 0
-<<<<<<< HEAD
+
+        delimiter_context_dialogue = " CC "
+        delimiter = " # "
+        delimiter_start = " SS "
+        delimiter_sep = " SEP "
+        delimiter_end = " EE "
+
+        person1, person2 = [], []
         add_description = True
-=======
-        print("Start")
->>>>>>> a334671161977bef71b6814e787193a2260bd2c3
+        dialog_counter = 0
+        train_data, valid_data, test_data = [], [], []
+
         for line in fp:
             counter += 1
             is_description, y, p = personas_description(line)
             if is_description:
-                print("Y: ", y)
-                print("P: ", p)
                 add_description = True
                 if y != "":
-
                     your_persona_description.append(y)
-                    print("your perdona arr: ", your_persona_description)
                 if p != "":
                     partner_persona_description.append(p)
-                    print("partner perdona arr: ", partner_persona_description)
             else:
                 if add_description:
+                    dialog_counter += 1
                     add_description = False
-                    for yp in your_persona_description:
-                        arr_len_y_descr.append(len(yp.split()))
-                        a_y += len(yp.split())
-                    for pp in partner_persona_description:
-                        arr_len_p_descr.append(len(pp.split()))
-                        a_p += len(pp.split())
+                    # for yp in your_persona_description:
+                    #     arr_len_y_descr.append(len(yp.split()))
+                    #     a_y += len(yp.split())
+                    # for pp in partner_persona_description:
+                    #     arr_len_p_descr.append(len(pp.split()))
+                    #     a_p += len(pp.split())
+                    context = ""
+                    data = []
+                    for i in range(len(person1)):
+                        data.append(partner_persona_desc_str + delimiter_context_dialogue + context)
+                        data.append(person1[i])
+                        context += person1[i] + delimiter
+                        data.append(your_persona_desc_str + delimiter_context_dialogue + context)
+                        data.append(person2[i])
+                        context += person2[i] + delimiter
+                    your_persona_desc_str = delimiter.join(your_persona_description)
+                    partner_persona_desc_str = delimiter.join(partner_persona_description)
+                    person1, person2 = [], []
                     your_persona_description = []
                     partner_persona_description = []
-
-            print("len y: ", len(arr_len_y_descr))
-            print("len p: ", len(arr_len_p_descr))
-            print("len utr1: ", len(arr_len_utter1))
-            print("len uttr2: ", len(arr_len_utter2))
+                    if counter % 5 == 0:
+                        valid_data += data
+                    elif counter % 9 == 0:
+                        test_data += data
+                    else:
+                        train_data += data
             sentences = line.split("\t")
-
-            # print("line: ", line.split("\t"))
             if len(sentences) > 1:
                 utterance1 = re.findall(r"\d+ (.*)", sentences[0])[0]
                 utterance2 = sentences[1]
-                arr_len_utter1.append(len(utterance1.split()))
-                arr_len_utter2.append(len(utterance2.split()))
-                a_u1 += len(utterance1.split())
-                a_u2 += len(utterance2.split())
-                # print("U1 ", utterance1)
-                # print("U2 ", utterance2)
-<<<<<<< HEAD
-    print("len y: ", len(arr_len_y_descr) )
-    print("len p: ", len(arr_len_p_descr))
-    print("len utr1: ", len(arr_len_utter1))
-    print("len uttr2: ", len(arr_len_utter2))
-    print("a y: ", a_y / len(arr_len_y_descr))
-    print("a p: ", a_p / len(arr_len_p_descr))
-    print("a u1: ", a_u1 / len(arr_len_utter1))
-    print("a u2: ", a_u2 / len(arr_len_utter2))
-=======
-    print("start csv write")
-    print("arr len y descr: ", len(arr_len_y_descr))
-    print("arr len p descr: ", len(arr_len_p_descr))
-    print("arr len utr1: ", len(arr_len_utter1))
-    print("arr len utr2: ", len(arr_len_utter2))
-    exit()
->>>>>>> a334671161977bef71b6814e787193a2260bd2c3
-    with open('datasets/description.csv', 'w', newline='') as myfile:
-        d = [arr_len_y_descr, arr_len_p_descr, arr_len_utter1, arr_len_utter2]
-        export_data = zip_longest(*d, fillvalue='')
-        wr = csv.writer(myfile, quoting=csv.QUOTE_ALL)
-        wr.writerow(['Your persona description length', 'Partner\'s persona description length', 'utterance1 length',
-                     'utterance2 length'])
-        wr.writerows(export_data)
-    myfile.close()
+                person1.append(utterance1)
+                person2.append(utterance2)
+                # arr_len_utter1.append(len(utterance1.split()))
+                # arr_len_utter2.append(len(utterance2.split()))
+                # a_u1 += len(utterance1.split())
+                # a_u2 += len(utterance2.split())
+    return train_data, valid_data, test_data
 
 
 def prepare_Twitter_data(filename):
@@ -256,7 +246,7 @@ def prepare_data():
     elif DATA_TYPE == "TWITTER":
         train_data, valid_data, test_data = prepare_Twitter_data('datasets/twitter_chat.txt')
     elif DATA_TYPE == "PERSONA_BOTH":
-        prepare_both_Persona_chat('datasets/persona_chat_both.txt')
+        train_data, valid_data, test_data = prepare_both_Persona_chat('datasets/persona_chat_both.txt', 0)
 
     print("train data: ", len(train_data))
     print("valid data: ", len(valid_data))

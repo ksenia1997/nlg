@@ -14,6 +14,7 @@ WITH_ATTENTION = False
 IS_BEAM_SEARCH = False
 
 IS_TEST = False
+CREATE_HISTOGRAM = False
 PREPARE_DATA = True
 
 MODEL_SAVE_PATH = 'seq2seq_model.pt'

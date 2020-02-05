@@ -1,4 +1,6 @@
 import csv
+from collections import defaultdict
+from itertools import zip_longest
 
 
 def save_to_csv(name, lines):
@@ -25,3 +27,23 @@ def load_csv(name):
                 lines.append(row[1])
                 line_count += 1
     return lines
+
+
+def save_data_in_column(filename, data_to_zip, columns_name):
+    with open(filename, 'w', newline='') as myfile:
+        export_data = zip_longest(*data_to_zip, fillvalue='')
+        wr = csv.writer(myfile, quoting=csv.QUOTE_ALL)
+        wr.writerow(columns_name)
+        wr.writerows(export_data)
+    myfile.close()
+
+
+def load_histogram_data(filename):
+    columns = defaultdict(list)
+    with open(filename) as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            for (k, v) in row.items():
+                if v != "":
+                    columns[k].append(int(v))
+    return columns
