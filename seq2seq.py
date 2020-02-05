@@ -455,18 +455,42 @@ def main():
     data_fields = [('question', TEXT), ('answer', TEXT)]
     fields = dict(data_fields)
 
+    if PREPROCESS:
+        trn, vld = TabularDataset.splits(
+            path="./datasets",  # the root directory where the data lies
+            train='twitter_train.csv', validation="twitter_valid.csv",
+            format='csv',
+            skip_header=True,
+            fields=data_fields)
+        fields["question"].build_vocab(trn, vectors=GloVe(name='6B', dim=config["embedding_dim"]))
+        vocab = fields["question"].vocab
+        # Create a set of iterators
+        train_iter = BucketIterator(trn,
+                                    shuffle=True, sort=False,
+                                    batch_size=config["train_batch_size"],
+                                    repeat=False,
+                                    device=device)
+        valid_iter = BucketIterator(vld,
+                                    shuffle=True, sort=False,
+                                    batch_size=config["train_batch_size"],
+                                    repeat=False,
+                                    device=device)
+        model = Seq2Seq(config, vocab)
+        fit_model(model, fields, train_iter, valid_iter)
+
     # Build the dataset for train, validation and test sets
     trn, vld, test = TabularDataset.splits(
-        path=".",  # the root directory where the data lies
+        path="./datasets",  # the root directory where the data lies
         train='train.csv', validation="valid.csv", test='test.csv',
         format='csv',
         skip_header=True,
         fields=data_fields)
 
-    # Build vocabulary
-    print("Build vocabulary")
-    fields["question"].build_vocab(trn, vectors=GloVe(name='6B', dim=config["embedding_dim"]))
-    vocab = fields["question"].vocab
+    if not PREPROCESS:
+        # Build vocabulary
+        print("Build vocabulary")
+        fields["question"].build_vocab(trn, vectors=GloVe(name='6B', dim=config["embedding_dim"]))
+        vocab = fields["question"].vocab
 
     # Create a set of iterators
     train_iter = BucketIterator(trn,
@@ -486,8 +510,11 @@ def main():
             print(batch)
         else:
             break
-
-    model = Seq2Seq(config, vocab)
+    if PREPROCESS:
+        print("LOAD")
+        model.load_state_dict(torch.load(MODEL_SAVE_PATH, map_location=torch.device(device)))
+    else:
+        model = Seq2Seq(config, vocab)
 
     if IS_TEST:
         model.load_state_dict(torch.load(MODEL_SAVE_PATH, map_location=torch.device(device)))

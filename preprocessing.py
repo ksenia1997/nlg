@@ -22,7 +22,7 @@ def personas_description(line):
 
 
 def prepare_both_Persona_chat(filename, pair_count):
-    print("BOTH")
+    print("Prepare Persona chat with both descriptions")
     with open(filename) as fp:
         # arr_len_utter1 = []
         # arr_len_utter2 = []
@@ -67,10 +67,10 @@ def prepare_both_Persona_chat(filename, pair_count):
                     context = ""
                     data = []
                     for i in range(len(person1)):
-                        data.append(partner_persona_desc_str + delimiter_context_dialogue + context)
+                        data.append(partner_persona_desc_str + delimiter_context_dialogue + delimiter_start + context)
                         data.append(person1[i])
                         context += person1[i] + delimiter
-                        data.append(your_persona_desc_str + delimiter_context_dialogue + context)
+                        data.append(your_persona_desc_str + delimiter_context_dialogue + delimiter_start + context)
                         data.append(person2[i])
                         context += person2[i] + delimiter
                     your_persona_desc_str = delimiter.join(your_persona_description)
@@ -105,7 +105,7 @@ def prepare_Twitter_data(filename):
     counter = 0
     with open(filename) as fp:
         for line in fp:
-            train_data.append(line[:15])
+            train_data.append(line)
             if counter % 10 == 0:
                 valid_data.append(line)
             if counter % 20 == 0:
@@ -242,16 +242,25 @@ nlp.tokenizer = create_custom_tokenizer(nlp)
 def prepare_data():
     print("Prepare data")
     if DATA_TYPE == "PERSONA":
+        filename_train = 'datasets/persona_train.csv'
+        filename_valid = 'datasets/persona_valid.csv'
+        filename_test = 'datasets/persona_test.csv'
         train_data, valid_data, test_data = prepare_Persona_chat('datasets/persona_chat.txt', CONTEXT_PAIR_COUNT)
     elif DATA_TYPE == "TWITTER":
+        filename_train = 'datasets/twitter_train.csv'
+        filename_valid = 'datasets/twitter_valid.csv'
+        filename_test = 'datasets/twitter_test.csv'
         train_data, valid_data, test_data = prepare_Twitter_data('datasets/twitter_chat.txt')
     elif DATA_TYPE == "PERSONA_BOTH":
+        filename_train = 'datasets/train.csv'
+        filename_valid = 'datasets/valid.csv'
+        filename_test = 'datasets/test.csv'
         train_data, valid_data, test_data = prepare_both_Persona_chat('datasets/persona_chat_both.txt', 0)
 
     print("train data: ", len(train_data))
     print("valid data: ", len(valid_data))
     print("test data: ", len(test_data))
 
-    save_to_csv('datasets/train.csv', train_data)
-    save_to_csv('datasets/valid.csv', valid_data)
-    save_to_csv('datasets/test.csv', test_data)
+    save_to_csv(filename_train, train_data)
+    save_to_csv(filename_valid, valid_data)
+    save_to_csv(filename_test, test_data)
