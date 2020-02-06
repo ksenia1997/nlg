@@ -9,6 +9,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 from tensorboardX import SummaryWriter
 from torch.nn.utils import clip_grad_norm_
+from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 from torchtext.data import BucketIterator
 from torchtext.data import Field
 from torchtext.data import TabularDataset
@@ -19,7 +20,7 @@ from utils.create_histogram import *
 
 # Create Field object
 # TEXT = data.Field(tokenize = 'spacy', lower=True, include_lengths = True, init_token = '<sos>',  eos_token = '<eos>')
-TEXT = Field(sequential=True, tokenize=lambda s: str.split(s, sep=JOIN_TOKEN), init_token='<sos>',
+TEXT = Field(sequential=True, tokenize=lambda s: str.split(s, sep=JOIN_TOKEN), include_lengths=True, init_token='<sos>',
              eos_token='<eos>', pad_token='<pad>', lower=True)
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 random.seed(SEED)
@@ -233,9 +234,13 @@ class Encoder(nn.Module):
 
     def forward(self, input_sequence):
         # Convert input_sequence to word embeddings
-        embeds_q = self.embedder(input_sequence).to(device)
+        embeds_q = self.embedder(input_sequence[0]).to(device)
         enc_q = self.dropout(embeds_q).to(device)
-        outputs, (hidden, cell) = self.lstm(enc_q)
+        inp_packed = pack_padded_sequence(enc_q, input_sequence[1], batch_first=False, enforce_sorted=False)
+        outputs, (hidden, cell) = self.lstm(inp_packed)
+        outputs, output_lengths = pad_packed_sequence(outputs, batch_first=False,
+                                                      padding_value=input_sequence[0][0][0],
+                                                      total_length=input_sequence[0].shape[0])
         return outputs, hidden, cell
 
 
@@ -288,14 +293,13 @@ class Seq2Seq(nn.Module):
     def forward(self, src, trg, teacher_forcing_ratio=0.5):
         # src [seq_len, batch_size]
         # trg [seq_len, batch_size]
-        max_len, batch_size = trg.size()
+        max_len, batch_size = trg[0].size()
         trg_vocab_size = self.decoder.output_dim
         outputs = torch.zeros(max_len, batch_size, trg_vocab_size).to(device)
         enc_output, hidden, cell = self.encoder(src)
         enc_output = enc_output.permute(1, 0, 2)
         decoder_h = (hidden, cell)
-        decoder_input = trg[0, :]
-
+        decoder_input = trg[0][0, :]
         for t in range(1, max_len):
             if WITH_ATTENTION:
                 output, decoder_h, attn_weights = self.decoder(decoder_input, decoder_h, enc_output)
@@ -304,7 +308,7 @@ class Seq2Seq(nn.Module):
             outputs[t] = output
             use_teacher_force = random.random() < teacher_forcing_ratio
             top1 = output.max(1)[1]
-            decoder_input = trg[t] if use_teacher_force else top1
+            decoder_input = trg[0][t] if use_teacher_force else top1
 
         return outputs.to(device)
 
@@ -320,8 +324,8 @@ def train(model, iterator, optimizer, criterion):
     Returns:
         epoch_loss: Average loss of the epoch.
     '''
-    #  some layers have different behavior during train/and evaluation (like BatchNorm, Dropout) so setting it matters.
     print("Train")
+    #  some layers have different behavior during train/and evaluation (like BatchNorm, Dropout) so setting it matters.
     model.train()
     # loss
     epoch_loss = 0
@@ -329,6 +333,7 @@ def train(model, iterator, optimizer, criterion):
     for i, batch in enumerate(iterator):
         src = batch.question
         trg = batch.answer
+
         optimizer.zero_grad()
 
         # trg is of shape [sequence_len, batch_size]
@@ -337,7 +342,7 @@ def train(model, iterator, optimizer, criterion):
 
         # trg shape shape should be [(sequence_len - 1) * batch_size]
         # output shape should be [(sequence_len - 1) * batch_size, output_dim]
-        loss = criterion(output[:-1].view(-1, output.shape[2]), trg[1:].view(-1))
+        loss = criterion(output[:-1].view(-1, output.shape[2]), trg[0][1:].view(-1))
         # backward pass
         loss.backward()
 
@@ -366,7 +371,7 @@ def evaluate(model, iterator, criterion):
     model.eval()
 
     epoch_loss = 0
-
+    print("Evaluate")
     # we don't need to update the model parameters. only forward pass.
     with torch.no_grad():
         for i, batch in enumerate(iterator):
@@ -379,9 +384,9 @@ def evaluate(model, iterator, criterion):
             # output shape should be [(sequence_len - 1) * batch_size, output_dim]
             loss = criterion(output[1:].view(-1, output.shape[2]), trg[1:].view(-1))
             epoch_loss += loss.item()
-            if i + 1 % 1000 == 0:
+            if i + 1 % 100 == 0:
                 print("eval loss: ", epoch_loss / i)
-        return epoch_loss / len(iterator)
+    return epoch_loss / len(iterator)
 
 
 def fit_model(model, fields, train_iter, valid_iter):
@@ -491,6 +496,7 @@ def main():
         print("Build vocabulary")
         fields["question"].build_vocab(trn, vectors=GloVe(name='6B', dim=config["embedding_dim"]))
         vocab = fields["question"].vocab
+        print("len vocab: ", len(vocab))
 
     # Create a set of iterators
     train_iter = BucketIterator(trn,
@@ -504,6 +510,8 @@ def main():
                                 repeat=False,
                                 device=device)
 
+    print("train iter: ", len(train_iter))
+    print("valid iter: ", len(valid_iter))
     # print("Most common: ", vocab.freqs.most_common(50))
     for i, batch in enumerate(train_iter):
         if i < 2:

@@ -257,9 +257,9 @@ def prepare_data():
         filename_test = 'datasets/test.csv'
         train_data, valid_data, test_data = prepare_both_Persona_chat('datasets/persona_chat_both.txt', 0)
 
-    print("train data: ", len(train_data))
-    print("valid data: ", len(valid_data))
-    print("test data: ", len(test_data))
+    print("train data: ", len(train_data)/2)
+    print("valid data: ", len(valid_data)/2)
+    print("test data: ", len(test_data)/2)
 
     save_to_csv(filename_train, train_data)
     save_to_csv(filename_valid, valid_data)
