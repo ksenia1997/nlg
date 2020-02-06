@@ -16,10 +16,10 @@ IS_BEAM_SEARCH = False
 IS_TEST = False
 CREATE_HISTOGRAM = False
 PREPARE_DATA = False
-PREPROCESS = True
+PREPROCESS = False
 
 MODEL_SAVE_PATH = 'seq2seq_model.pt'
 
-config = {"train_batch_size": 5, "optimize_embeddings": False,
-          "embedding_dim": 100, "hidden_dim": 512, "dropout_rate": 0.5, "num_layers": 1,
+config = {"train_batch_size": 10, "optimize_embeddings": False,
+          "embedding_dim": 100, "hidden_dim": 512, "dropout_rate": 0.1, "num_layers": 1,
           "attention_model": 'concat'}

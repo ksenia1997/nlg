@@ -10,3 +10,6 @@ persona_chat_both.txt
 * number of partner's  persona sentences:  40126
 * number of utterance1:  65719
 * number of utterance2:  65719
+
+
+* number of dialogues: 8938

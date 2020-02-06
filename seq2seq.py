@@ -333,11 +333,11 @@ def train(model, iterator, optimizer, criterion):
 
         # trg is of shape [sequence_len, batch_size]
         # output is of shape [sequence_len, batch_size, output_dim]
-        output = model(src, trg)
+        output = model(src, trg, float('inf'))
 
         # trg shape shape should be [(sequence_len - 1) * batch_size]
         # output shape should be [(sequence_len - 1) * batch_size, output_dim]
-        loss = criterion(output[:-1].view(-1, output.shape[2]), trg[:-1].view(-1))
+        loss = criterion(output[:-1].view(-1, output.shape[2]), trg[1:].view(-1))
         # backward pass
         loss.backward()
 
@@ -445,9 +445,9 @@ def main():
                        yp_desc, 50, 'persona_desc.png')
         plot_histogram('Histogram of partner\'s persona description lengths', 'number of words in description',
                        'number of descriptions', pp_desc, 50, 'partner_desc.png')
-        plot_histogram('Histogram of first person\'s utterances lengths', 'number of words in utterance',
+        plot_histogram('Histogram of utterances\' lengths of the first person', 'number of words in utterance',
                        'number of utterances', utr1_length, 50, 'uttr1_length.png')
-        plot_histogram('Histogram of second person\'s utterances lengths', 'number of words in utterance',
+        plot_histogram('Histogram of utterances\' lengths of the first person', 'number of words in utterance',
                        'number of utterances', utr2_length, 50, 'uttr2_length.png')
         exit()
 
@@ -511,7 +511,6 @@ def main():
         else:
             break
     if PREPROCESS:
-        print("LOAD")
         model.load_state_dict(torch.load(MODEL_SAVE_PATH, map_location=torch.device(device)))
     else:
         model = Seq2Seq(config, vocab)

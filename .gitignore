@@ -5,5 +5,8 @@
 datasets/train.csv
 datasets/valid.csv
 datasets/test.csv
+datasets/twitter_test.csv
+datasets/twitter_valid.csv
+datasets/twitter_train.csv
 __pycache__
 utils/__pycache__
