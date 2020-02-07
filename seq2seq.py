@@ -20,7 +20,7 @@ from utils.create_histogram import *
 
 # Create Field object
 # TEXT = data.Field(tokenize = 'spacy', lower=True, include_lengths = True, init_token = '<sos>',  eos_token = '<eos>')
-TEXT = Field(sequential=True, tokenize=lambda s: str.split(s, sep=JOIN_TOKEN), include_lengths=True, init_token='<sos>',
+TEXT = Field(sequential=True, tokenize=lambda s: str.split(s, sep=JOIN_TOKEN), init_token='<sos>',
              eos_token='<eos>', pad_token='<pad>', lower=True)
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 random.seed(SEED)
@@ -151,7 +151,7 @@ def beam_decode(decoder, vocab, fields, target_tensor, decoder_hiddens, encoder_
 
 def init_weights(m):
     for name, param in m.named_parameters():
-        nn.init.normal(param.data, 0, 1)
+        nn.init.normal(param.data, mean=0, std=0.01)
 
 
 class LuongDecoder(nn.Module):
@@ -236,11 +236,11 @@ class Encoder(nn.Module):
         # Convert input_sequence to word embeddings
         embeds_q = self.embedder(input_sequence[0]).to(device)
         enc_q = self.dropout(embeds_q).to(device)
-        # inp_packed = pack_padded_sequence(enc_q, input_sequence[1], batch_first=False, enforce_sorted=False)
-        outputs, (hidden, cell) = self.lstm(enc_q)
-        # outputs, output_lengths = pad_packed_sequence(outputs, batch_first=False,
-        #                                              padding_value=input_sequence[0][0][0],
-        #                                              total_length=input_sequence[0].shape[0])
+        inp_packed = pack_padded_sequence(enc_q, input_sequence[1], batch_first=False, enforce_sorted=False)
+        outputs, (hidden, cell) = self.lstm(inp_packed)
+        outputs, output_lengths = pad_packed_sequence(outputs, batch_first=False,
+                                                      padding_value=input_sequence[0][0][0],
+                                                      total_length=input_sequence[0].shape[0])
         return outputs, hidden, cell
 
 

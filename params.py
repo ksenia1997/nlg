@@ -21,5 +21,5 @@ PREPROCESS = False
 MODEL_SAVE_PATH = 'seq2seq_model.pt'
 
 config = {"train_batch_size": 10, "optimize_embeddings": False,
-          "embedding_dim": 100, "hidden_dim": 512, "dropout_rate": 0.1, "num_layers": 1,
+          "embedding_dim": 100, "hidden_dim": 512, "dropout_rate": 0.1, "num_layers": 2,
           "attention_model": 'concat'}
