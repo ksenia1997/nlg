@@ -325,7 +325,7 @@ def train(model, iterator, optimizer, criterion):
     model.train()
     # loss
     epoch_loss = 0
-
+    print("iterator: ", len(iterator))
     for i, batch in enumerate(iterator):
         src = batch.question
         trg = batch.answer
@@ -366,9 +366,10 @@ def evaluate(model, iterator, criterion):
     model.eval()
 
     epoch_loss = 0
-
+    print("Evaluate")
     # we don't need to update the model parameters. only forward pass.
     with torch.no_grad():
+        print("enumerate: ", len(iterator))
         for i, batch in enumerate(iterator):
             src = batch.question
             trg = batch.answer
@@ -379,9 +380,10 @@ def evaluate(model, iterator, criterion):
             # output shape should be [(sequence_len - 1) * batch_size, output_dim]
             loss = criterion(output[1:].view(-1, output.shape[2]), trg[1:].view(-1))
             epoch_loss += loss.item()
-            if i + 1 % 1000 == 0:
+            
+            if (i + 1) % 100 == 0:
                 print("eval loss: ", epoch_loss / i)
-        return epoch_loss / len(iterator)
+    return epoch_loss / len(iterator)
 
 
 def fit_model(model, fields, train_iter, valid_iter):
@@ -504,6 +506,8 @@ def main():
                                 repeat=False,
                                 device=device)
 
+    print("train iter: ", len(train_iter))
+    print("valid iter: ", len(valid_iter))
     # print("Most common: ", vocab.freqs.most_common(50))
     for i, batch in enumerate(train_iter):
         if i < 2:
@@ -517,7 +521,7 @@ def main():
 
     if IS_TEST:
         model.load_state_dict(torch.load(MODEL_SAVE_PATH, map_location=torch.device(device)))
-        test_data = load_csv('test.csv')
+        test_data = load_csv('datasets/test.csv')
         data_to_save = []
         for i in range(0, len(test_data), 2):
             answer = test_model(test_data[i], fields, vocab, model)
