@@ -151,7 +151,7 @@ def beam_decode(decoder, vocab, fields, target_tensor, decoder_hiddens, encoder_
 
 def init_weights(m):
     for name, param in m.named_parameters():
-        nn.init.uniform_(param.data, -0.08, 0.08)
+        nn.init.normal(param.data, 0, 1)
 
 
 class LuongDecoder(nn.Module):
