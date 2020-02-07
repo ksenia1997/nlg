@@ -369,7 +369,6 @@ def evaluate(model, iterator, criterion):
     '''
 
     model.eval()
-
     epoch_loss = 0
     print("Evaluate")
     # we don't need to update the model parameters. only forward pass.
@@ -382,11 +381,11 @@ def evaluate(model, iterator, criterion):
 
             # trg shape shape should be [(sequence_len - 1) * batch_size]
             # output shape should be [(sequence_len - 1) * batch_size, output_dim]
-            loss = criterion(output[1:].view(-1, output.shape[2]), trg[1:].view(-1))
+            loss = criterion(output[:-1].view(-1, output.shape[2]), trg[0][1:].view(-1))
             epoch_loss += loss.item()
             
-            if (i + 1) % 100 == 0:
-                print("eval loss: ", epoch_loss / i)
+            # if (i + 1) % 100 == 0:
+            #     print("eval loss: ", epoch_loss / i)
     return epoch_loss / len(iterator)
 
 
