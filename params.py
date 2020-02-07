@@ -1,7 +1,7 @@
 SEED = 5  # set seed value for deterministic results
 CLIP = 10
 
-N_EPOCHS = 2
+N_EPOCHS = 15
 
 JOIN_TOKEN = " "
 
@@ -13,7 +13,7 @@ CONTEXT_PAIR_COUNT = 0
 WITH_ATTENTION = False
 IS_BEAM_SEARCH = False
 
-IS_TEST = False
+IS_TEST = True
 CREATE_HISTOGRAM = False
 PREPARE_DATA = False
 PREPROCESS = False
