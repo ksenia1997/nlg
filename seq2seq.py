@@ -236,11 +236,11 @@ class Encoder(nn.Module):
         # Convert input_sequence to word embeddings
         embeds_q = self.embedder(input_sequence[0]).to(device)
         enc_q = self.dropout(embeds_q).to(device)
-        inp_packed = pack_padded_sequence(enc_q, input_sequence[1], batch_first=False, enforce_sorted=False)
-        outputs, (hidden, cell) = self.lstm(inp_packed)
-        outputs, output_lengths = pad_packed_sequence(outputs, batch_first=False,
-                                                      padding_value=input_sequence[0][0][0],
-                                                      total_length=input_sequence[0].shape[0])
+        # inp_packed = pack_padded_sequence(enc_q, input_sequence[1], batch_first=False, enforce_sorted=False)
+        outputs, (hidden, cell) = self.lstm(enc_q)
+        # outputs, output_lengths = pad_packed_sequence(outputs, batch_first=False,
+        #                                              padding_value=input_sequence[0][0][0],
+        #                                              total_length=input_sequence[0].shape[0])
         return outputs, hidden, cell
 
 
@@ -382,11 +382,10 @@ def evaluate(model, iterator, criterion):
 
             # trg shape shape should be [(sequence_len - 1) * batch_size]
             # output shape should be [(sequence_len - 1) * batch_size, output_dim]
-            loss = criterion(output[1:].view(-1, output.shape[2]), trg[1:].view(-1))
+            loss = criterion(output[:-1].view(-1, output.shape[2]), trg[0][1:].view(-1))
             epoch_loss += loss.item()
-            
-            if (i + 1) % 100 == 0:
-                print("eval loss: ", epoch_loss / i)
+            # if (i + 1) % 100 == 0:
+            #    print("eval loss: ", epoch_loss / i)
     return epoch_loss / len(iterator)
 
 
@@ -403,7 +402,10 @@ def fit_model(model, fields, train_iter, valid_iter):
         model.tb.add_scalar('train_loss', train_loss, epoch)
         model.tb.add_scalar('valid_loss', valid_loss, epoch)
         for name, param in model.named_parameters():
+            print("name: ", name, param)
             if param.grad is not None and not param.grad.data.is_sparse:
+                print("param grad: ", param.grad)
+                print("data: ", param.grad.data)
                 model.tb.add_histogram(f"gradients_wrt_hidden_{name}/",
                                        param.grad.data.norm(p=2, dim=0),
                                        global_step=epoch)
