@@ -401,10 +401,10 @@ def fit_model(model, fields, train_iter, valid_iter):
         model.tb.add_scalar('train_loss', train_loss, epoch)
         model.tb.add_scalar('valid_loss', valid_loss, epoch)
         for name, param in model.named_parameters():
-            print("name: ", name, param)
+            #print("name: ", name, param)
             if param.grad is not None and not param.grad.data.is_sparse:
-                print("param grad: ", param.grad)
-                print("data: ", param.grad.data)
+                #print("param grad: ", param.grad)
+                #print("data: ", param.grad.data)
                 model.tb.add_histogram(f"gradients_wrt_hidden_{name}/",
                                        param.grad.data.norm(p=2, dim=0),
                                        global_step=epoch)
