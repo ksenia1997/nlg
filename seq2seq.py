@@ -20,7 +20,7 @@ from utils.create_histogram import *
 
 # Create Field object
 # TEXT = data.Field(tokenize = 'spacy', lower=True, include_lengths = True, init_token = '<sos>',  eos_token = '<eos>')
-TEXT = Field(sequential=True, tokenize=lambda s: str.split(s, sep=JOIN_TOKEN), init_token='<sos>',
+TEXT = Field(sequential=True, tokenize=lambda s: str.split(s, sep=JOIN_TOKEN), include_lengths=True, init_token='<sos>',
              eos_token='<eos>', pad_token='<pad>', lower=True)
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 random.seed(SEED)
@@ -235,8 +235,8 @@ class Encoder(nn.Module):
     def forward(self, input_sequence):
         # Convert input_sequence to word embeddings
         embeds_q = self.embedder(input_sequence[0]).to(device)
-        enc_q = self.dropout(embeds_q).to(device)
-        inp_packed = pack_padded_sequence(enc_q, input_sequence[1], batch_first=False, enforce_sorted=False)
+        embedded = self.dropout(embeds_q).to(device)
+        inp_packed = pack_padded_sequence(embedded, input_sequence[1], batch_first=False, enforce_sorted=False)
         outputs, (hidden, cell) = self.lstm(inp_packed)
         outputs, output_lengths = pad_packed_sequence(outputs, batch_first=False,
                                                       padding_value=input_sequence[0][0][0],
@@ -376,9 +376,7 @@ def evaluate(model, iterator, criterion):
         for i, batch in enumerate(iterator):
             src = batch.question
             trg = batch.answer
-
             output = model(src, trg, 0)  # turn off the teacher forcing
-
             # trg shape shape should be [(sequence_len - 1) * batch_size]
             # output shape should be [(sequence_len - 1) * batch_size, output_dim]
             loss = criterion(output[:-1].view(-1, output.shape[2]), trg[0][1:].view(-1))
@@ -401,10 +399,10 @@ def fit_model(model, fields, train_iter, valid_iter):
         model.tb.add_scalar('train_loss', train_loss, epoch)
         model.tb.add_scalar('valid_loss', valid_loss, epoch)
         for name, param in model.named_parameters():
-            #print("name: ", name, param)
+            # print("name: ", name, param)
             if param.grad is not None and not param.grad.data.is_sparse:
-                #print("param grad: ", param.grad)
-                #print("data: ", param.grad.data)
+                # print("param grad: ", param.grad)
+                # print("data: ", param.grad.data)
                 model.tb.add_histogram(f"gradients_wrt_hidden_{name}/",
                                        param.grad.data.norm(p=2, dim=0),
                                        global_step=epoch)
@@ -462,29 +460,6 @@ def main():
     data_fields = [('question', TEXT), ('answer', TEXT)]
     fields = dict(data_fields)
 
-    if PREPROCESS:
-        trn, vld = TabularDataset.splits(
-            path="./datasets",  # the root directory where the data lies
-            train='twitter_train.csv', validation="twitter_valid.csv",
-            format='csv',
-            skip_header=True,
-            fields=data_fields)
-        fields["question"].build_vocab(trn, vectors=GloVe(name='6B', dim=config["embedding_dim"]))
-        vocab = fields["question"].vocab
-        # Create a set of iterators
-        train_iter = BucketIterator(trn,
-                                    shuffle=True, sort=False,
-                                    batch_size=config["train_batch_size"],
-                                    repeat=False,
-                                    device=device)
-        valid_iter = BucketIterator(vld,
-                                    shuffle=True, sort=False,
-                                    batch_size=config["train_batch_size"],
-                                    repeat=False,
-                                    device=device)
-        model = Seq2Seq(config, vocab)
-        fit_model(model, fields, train_iter, valid_iter)
-
     # Build the dataset for train, validation and test sets
     trn, vld, test = TabularDataset.splits(
         path="./datasets",  # the root directory where the data lies
@@ -493,12 +468,33 @@ def main():
         skip_header=True,
         fields=data_fields)
 
-    if not PREPROCESS:
-        # Build vocabulary
-        print("Build vocabulary")
-        fields["question"].build_vocab(trn, vectors=GloVe(name='6B', dim=config["embedding_dim"]))
-        vocab = fields["question"].vocab
-        print("len vocab: ", len(vocab))
+    # Build vocabulary
+    print("Build vocabulary")
+    fields["question"].build_vocab(trn, vectors=GloVe(name='6B', dim=config["embedding_dim"]))
+    vocab = fields["question"].vocab
+    print("len vocab: ", len(vocab))
+    if PREPROCESS:
+        train, valid = TabularDataset.splits(
+            path="./datasets",  # the root directory where the data lies
+            train='twitter_train.csv', validation="twitter_valid.csv",
+            format='csv',
+            skip_header=True,
+            fields=data_fields)
+        # Create a set of iterators
+        train_iter = BucketIterator(train,
+                                    shuffle=True, sort=False,
+                                    batch_size=config["train_batch_size"],
+                                    repeat=False,
+                                    device=device)
+        valid_iter = BucketIterator(valid,
+                                    shuffle=True, sort=False,
+                                    batch_size=config["train_batch_size"],
+                                    repeat=False,
+                                    device=device)
+        model = Seq2Seq(config, vocab)
+        fit_model(model, fields, train_iter, valid_iter)
+
+
 
     # Create a set of iterators
     train_iter = BucketIterator(trn,
@@ -507,13 +503,11 @@ def main():
                                 repeat=False,
                                 device=device)
     valid_iter = BucketIterator(vld,
-                                shuffle=True, sort=False,
+                                shuffle=False, sort=False,
                                 batch_size=config["train_batch_size"],
                                 repeat=False,
                                 device=device)
 
-    print("train iter: ", len(train_iter))
-    print("valid iter: ", len(valid_iter))
     # print("Most common: ", vocab.freqs.most_common(50))
     for i, batch in enumerate(train_iter):
         if i < 2:
