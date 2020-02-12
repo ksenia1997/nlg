@@ -97,6 +97,7 @@ class Encoder(nn.Module):
         self.dropout = nn.Dropout(self.dropout_rate).to(device)
 
     def forward(self, input_sequence):
+        # Convert input_sequence to word embeddings
         use_padded = False
         if isinstance(input_sequence, tuple):
             use_padded = True
