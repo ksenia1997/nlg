@@ -1,11 +1,22 @@
-import numpy as np
-from torchtext.datasets import Multi30k
+import math
+import random
+import time
 
-from seq2seq import *
+import numpy as np
+import spacy
+import torch
+import torch.nn as nn
+import torch.optim as optim
+from tensorboardX import SummaryWriter
+from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
+from torchtext.data import Field, BucketIterator
+from torchtext.datasets import Multi30k
+from torchtext.vocab import GloVe
+
+from params import *
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-SEED = 1234
 random.seed(SEED)
 np.random.seed(SEED)
 torch.manual_seed(SEED)
@@ -30,83 +41,47 @@ def tokenize_en(text):
     return [tok.text for tok in spacy_en.tokenizer(text)]
 
 
-def training(model, iterator, optimizer, criterion):
-    ''' Training loop for the model to train.
-    Args:
-        model: A Seq2Seq model instance.
-        iterator: A DataIterator to read the data.
-        optimizer: Optimizer for the model.
-        criterion: loss criterion.
-        clip: gradient clip value.
-    Returns:
-        epoch_loss: Average loss of the epoch.
-    '''
-    print("Train multi K")
-    #  some layers have different behavior during train/and evaluation (like BatchNorm, Dropout) so setting it matters.
-    model.train()
-    # loss
-    epoch_loss = 0
-    print("iterator: ", len(iterator))
-    for i, batch in enumerate(iterator):
-        src = batch.src
-        trg = batch.trg
+SRC = Field(tokenize=tokenize_de,
+            include_lengths=True,
+            init_token='<sos>',
+            eos_token='<eos>',
+            lower=True)
 
-        optimizer.zero_grad()
+TRG = Field(tokenize=tokenize_en,
+            include_lengths=True,
+            init_token='<sos>',
+            eos_token='<eos>',
+            lower=True)
 
-        # trg is of shape [sequence_len, batch_size]
-        # output is of shape [sequence_len, batch_size, output_dim]
-        output = model(src, trg, float('inf'))
+train_data, valid_data, test_data = Multi30k.splits(exts=('.de', '.en'),
+                                                    fields=(SRC, TRG))
 
-        # trg shape shape should be [(sequence_len - 1) * batch_size]
-        # output shape should be [(sequence_len - 1) * batch_size, output_dim]
-        loss = criterion(output[:-1].view(-1, output.shape[2]), trg[0][1:].view(-1))
-        # backward pass
-        loss.backward()
+print(vars(train_data.examples[0]))
 
-        # clip the gradients
-        clip_grad_norm_(model.parameters(), CLIP)
+ENC_EMB_DIM = 300
+DEC_EMB_DIM = 300
+HID_DIM = 512
+N_LAYERS = 2
+ENC_DROPOUT = 0.5
+DEC_DROPOUT = 0.5
 
-        # update the parameters
-        optimizer.step()
+SRC.build_vocab(train_data, vectors=GloVe(name='6B', dim=ENC_EMB_DIM))
+TRG.build_vocab(train_data, vectors=GloVe(name='6B', dim=DEC_EMB_DIM))
 
-        epoch_loss += loss.item()
+INPUT_DIM = len(SRC.vocab)
+OUTPUT_DIM = len(TRG.vocab)
+BATCH_SIZE = 128
 
-    # return the average loss
-    return epoch_loss / len(iterator)
+train_iterator, valid_iterator, test_iterator = BucketIterator.splits(
+    (train_data, valid_data, test_data),
+    sort=False,
+    batch_size=BATCH_SIZE,
+    device=device)
 
 
-def evaluating(model, iterator, criterion):
-    ''' Evaluation loop for the model to evaluate.
-    Args:
-        model: A Seq2Seq model instance.
-        iterator: A DataIterator to read the data.
-        criterion: loss criterion.
-    Returns:
-        epoch_loss: Average loss of the epoch.
-    '''
-
-    model.eval()
-    epoch_loss = 0
-    print("Evaluate multi K")
-    # we don't need to update the model parameters. only forward pass.
-    with torch.no_grad():
-        for i, batch in enumerate(iterator):
-            src = batch.src
-            trg = batch.trg
-            output = model(src, trg, 0)  # turn off the teacher forcing
-            # trg shape shape should be [(sequence_len - 1) * batch_size]
-            # output shape should be [(sequence_len - 1) * batch_size, output_dim]
-            loss = criterion(output[:-1].view(-1, output.shape[2]), trg[0][1:].view(-1))
-            epoch_loss += loss.item()
-            # if (i + 1) % 100 == 0:
-            #    print("eval loss: ", epoch_loss / i)
-    return epoch_loss / len(iterator)
-
-
-class EncoderM(nn.Module):
+class Encoder(nn.Module):
     def __init__(self, config, vocab):
         super().__init__()
-
         self.embedding_dim = config["embedding_dim"]
         self.hidden_dim = config["hidden_dim"]
         self.n_layers = config["num_layers"]
@@ -132,7 +107,7 @@ class EncoderM(nn.Module):
         return outputs, hidden, cell
 
 
-class DecoderM(nn.Module):
+class Decoder(nn.Module):
     def __init__(self, config, vocab):
         super().__init__()
         self.embedding_dim = config["embedding_dim"]
@@ -160,23 +135,19 @@ class DecoderM(nn.Module):
         return predicted, hidden, cell
 
 
-class Seq2SeqM(nn.Module):
+class Seq2Seq(nn.Module):
     def __init__(self, config, vocab_src, vocab_trg):
         super().__init__()
-        self.encoder = EncoderM(config, vocab_src).to(device)
-        if WITH_ATTENTION:
-            self.decoder = LuongDecoder(config, vocab_trg).to(device)
-        else:
-            self.decoder = DecoderM(config, vocab_trg).to(device)
+        self.encoder = Encoder(config, vocab_src).to(device)
+        self.decoder = Decoder(config, vocab_trg).to(device)
+        experiment_name = "train_" + time.strftime('%d-%m-%Y_%H:%M:%S')
+        tensorboard_log_dir = './tensorboard-logs/{}/'.format(experiment_name)
+        self.tb = SummaryWriter(tensorboard_log_dir)
 
         assert self.encoder.hidden_dim == self.decoder.hidden_dim, \
             "Hidden dimensions of encoder and decoder must be equal!"
         assert self.encoder.n_layers == self.decoder.n_layers, \
             "Encoder and decoder must have equal number of layers!"
-
-        experiment_name = "train_" + time.strftime('%d-%m-%Y_%H:%M:%S')
-        tensorboard_log_dir = './tensorboard-logs/{}/'.format(experiment_name)
-        self.tb = SummaryWriter(tensorboard_log_dir)
 
     def forward(self, src, trg, teacher_forcing_ratio=0.5):
         # src [seq_len, batch_size]
@@ -185,79 +156,142 @@ class Seq2SeqM(nn.Module):
         trg_vocab_size = self.decoder.output_dim
         outputs = torch.zeros(max_len, batch_size, trg_vocab_size).to(device)
         enc_output, hidden, cell = self.encoder(src)
-        enc_output = enc_output.permute(1, 0, 2)
-        decoder_h = (hidden, cell)
         decoder_input = trg[0][0, :]
         for t in range(1, max_len):
-            if WITH_ATTENTION:
-                output, decoder_h, attn_weights = self.decoder(decoder_input, decoder_h, enc_output)
-            else:
-                output, hidden, cell = self.decoder(decoder_input, hidden, cell)
+            output, hidden, cell = self.decoder(decoder_input, hidden, cell)
             outputs[t] = output
             use_teacher_force = random.random() < teacher_forcing_ratio
-            top1 = output.max(1)[1]
+            top1 = output.argmax(1)
             decoder_input = trg[0][t] if use_teacher_force else top1
 
         return outputs.to(device)
 
 
-def model_fit(model, train_iter, valid_iter):
-    model.apply(init_weights)
-    optimizer = optim.Adam(model.parameters())
-
-    criterion = nn.CrossEntropyLoss(ignore_index=SRC_PAD_IDX)
-    best_validation_loss = float('inf')
-
-    for epoch in range(N_EPOCHS):
-        train_loss = training(model, train_iter, optimizer, criterion)
-        valid_loss = evaluating(model, valid_iter, criterion)
-        model.tb.add_scalar('train_loss', train_loss, epoch)
-        model.tb.add_scalar('valid_loss', valid_loss, epoch)
-        for name, param in model.named_parameters():
-            # print("name: ", name, param)
-            if param.grad is not None and not param.grad.data.is_sparse:
-                # print("param grad: ", param.grad)
-                # print("data: ", param.grad.data)
-                model.tb.add_histogram(f"gradients_wrt_hidden_{name}/",
-                                       param.grad.data.norm(p=2, dim=0),
-                                       global_step=epoch)
-        if valid_loss < best_validation_loss:
-            best_validation_loss = valid_loss
-            torch.save(model.state_dict(), "multiK.pt")
-            print(
-                f'| Epoch: {epoch + 1:03} | Train Loss: {train_loss:.3f} | Train PPL: {math.exp(train_loss):7.3f} | Val. Loss: {valid_loss:.3f} | Val. PPL: {math.exp(valid_loss):7.3f} |')
-    model.tb.close()
+model = Seq2Seq(config, SRC.vocab, TRG.vocab).to(device)
 
 
-SRC = Field(tokenize=tokenize_de,
-            include_lengths=True,
-            init_token='<sos>',
-            eos_token='<eos>',
-            lower=True)
+def init_weights(m):
+    for name, param in m.named_parameters():
+        nn.init.uniform_(param.data, -0.08, 0.08)
 
-TRG = Field(tokenize=tokenize_en,
-            include_lengths=True,
-            init_token='<sos>',
-            eos_token='<eos>',
-            lower=True)
 
-train_data, valid_data, test_data = Multi30k.splits(exts=('.de', '.en'),
-                                                    fields=(SRC, TRG))
+model.apply(init_weights)
 
-SRC.build_vocab(train_data, vectors=GloVe(name='6B', dim=config["embedding_dim"]))
-TRG.build_vocab(train_data, vectors=GloVe(name='6B', dim=config["embedding_dim"]))
 
-vocab_src = SRC.vocab
-vocab_trg = TRG.vocab
-print(f"Unique tokens in source (de) vocabulary: {len(SRC.vocab)}")
+def count_parameters(model):
+    return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
-BATCH_SIZE = 128
 
-train_iterator, valid_iterator, test_iterator = BucketIterator.splits(
-    (train_data, valid_data, test_data),
-    batch_size=BATCH_SIZE,
-    device=device)
+print(f'The model has {count_parameters(model):,} trainable parameters')
 
-SRC_PAD_IDX = SRC.vocab.stoi[SRC.pad_token]
-model = Seq2SeqM(config, vocab_src, vocab_trg)
-model_fit(model, train_iterator, valid_iterator)
+optimizer = optim.Adam(model.parameters())
+TRG_PAD_IDX = TRG.vocab.stoi[TRG.pad_token]
+criterion = nn.CrossEntropyLoss(ignore_index=TRG_PAD_IDX)
+
+
+def train(model, iterator, optimizer, criterion, clip):
+    model.train()
+
+    epoch_loss = 0
+
+    for i, batch in enumerate(iterator):
+        src = batch.src
+        trg = batch.trg
+
+        optimizer.zero_grad()
+
+        output = model(src, trg)
+
+        # trg = [trg len, batch size]
+        # output = [trg len, batch size, output dim]
+
+        output_dim = output.shape[-1]
+
+        output = output[1:].view(-1, output_dim)
+        trg = trg[0][1:].view(-1)
+
+        # trg = [(trg len - 1) * batch size]
+        # output = [(trg len - 1) * batch size, output dim]
+
+        loss = criterion(output, trg)
+
+        loss.backward()
+
+        torch.nn.utils.clip_grad_norm_(model.parameters(), clip)
+
+        optimizer.step()
+
+        epoch_loss += loss.item()
+
+    return epoch_loss / len(iterator)
+
+
+def evaluate(model, iterator, criterion):
+    model.eval()
+    epoch_loss = 0
+
+    with torch.no_grad():
+        for i, batch in enumerate(iterator):
+            src = batch.src
+            trg = batch.trg
+
+            output = model(src, trg, 0)  # turn off teacher forcing
+
+            # trg = [trg len, batch size]
+            # output = [trg len, batch size, output dim]
+
+            output_dim = output.shape[-1]
+
+            output = output[:-1].view(-1, output_dim)
+            trg = trg[0][1:].view(-1)
+
+            # trg = [(trg len - 1) * batch size]
+            # output = [(trg len - 1) * batch size, output dim]
+
+            loss = criterion(output, trg)
+
+            epoch_loss += loss.item()
+
+    return epoch_loss / len(iterator)
+
+
+def epoch_time(start_time, end_time):
+    elapsed_time = end_time - start_time
+    elapsed_mins = int(elapsed_time / 60)
+    elapsed_secs = int(elapsed_time - (elapsed_mins * 60))
+    return elapsed_mins, elapsed_secs
+
+
+N_EPOCHS = 10
+
+best_valid_loss = float('inf')
+
+for epoch in range(N_EPOCHS):
+
+    start_time = time.time()
+
+    train_loss = train(model, train_iterator, optimizer, criterion, CLIP)
+    valid_loss = evaluate(model, valid_iterator, criterion)
+
+    end_time = time.time()
+
+    model.tb.add_scalar('train_loss', train_loss, epoch)
+    model.tb.add_scalar('valid_loss', valid_loss, epoch)
+    for name, param in model.named_parameters():
+        # print("name: ", name, param)
+        if param.grad is not None and not param.grad.data.is_sparse:
+            # print("param grad: ", param.grad)
+            # print("data: ", param.grad.data)
+            model.tb.add_histogram(f"gradients_wrt_hidden_{name}/",
+                                   param.grad.data.norm(p=2, dim=0),
+                                   global_step=epoch)
+
+    epoch_mins, epoch_secs = epoch_time(start_time, end_time)
+
+    if valid_loss < best_valid_loss:
+        best_valid_loss = valid_loss
+        torch.save(model.state_dict(), 'tut1-model.pt')
+
+    print(f'Epoch: {epoch + 1:02} | Time: {epoch_mins}m {epoch_secs}s')
+    print(f'\tTrain Loss: {train_loss:.3f} | Train PPL: {math.exp(train_loss):7.3f}')
+    print(f'\t Val. Loss: {valid_loss:.3f} |  Val. PPL: {math.exp(valid_loss):7.3f}')

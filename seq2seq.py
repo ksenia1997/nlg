@@ -18,7 +18,6 @@ from torchtext.vocab import GloVe
 from preprocessing import *
 from utils.create_histogram import *
 
-
 # Create Field object
 # TEXT = data.Field(tokenize = 'spacy', lower=True, include_lengths = True, init_token = '<sos>',  eos_token = '<eos>')
 TEXT = Field(sequential=True, tokenize=lambda s: str.split(s, sep=JOIN_TOKEN), include_lengths=True, init_token='<sos>',
@@ -309,7 +308,7 @@ class Seq2Seq(nn.Module):
                 output, hidden, cell = self.decoder(decoder_input, hidden, cell)
             outputs[t] = output
             use_teacher_force = random.random() < teacher_forcing_ratio
-            top1 = output.max(1)[1]
+            top1 = output.argmax(1)
             decoder_input = trg[0][t] if use_teacher_force else top1
 
         return outputs.to(device)
@@ -381,11 +380,19 @@ def evaluate(model, iterator, criterion):
             output = model(src, trg, 0)  # turn off the teacher forcing
             # trg shape shape should be [(sequence_len - 1) * batch_size]
             # output shape should be [(sequence_len - 1) * batch_size, output_dim]
-            loss = criterion(output[:-1].view(-1, output.shape[2]), trg[0][1:].view(-1))
+            output = output[:-1].view(-1, output.shape[-1])
+            trg = trg[0][1:].view(-1)
+            loss = criterion(output, trg)
             epoch_loss += loss.item()
             # if (i + 1) % 100 == 0:
             #    print("eval loss: ", epoch_loss / i)
     return epoch_loss / len(iterator)
+
+def epoch_time(start_time, end_time):
+    elapsed_time = end_time - start_time
+    elapsed_mins = int(elapsed_time / 60)
+    elapsed_secs = int(elapsed_time - (elapsed_mins * 60))
+    return elapsed_mins, elapsed_secs
 
 
 def fit_model(model, fields, train_iter, valid_iter):
@@ -396,8 +403,13 @@ def fit_model(model, fields, train_iter, valid_iter):
     best_validation_loss = float('inf')
 
     for epoch in range(N_EPOCHS):
+
+        start_time = time.time()
         train_loss = train(model, train_iter, optimizer, criterion)
         valid_loss = evaluate(model, valid_iter, criterion)
+        end_time = time.time()
+        epoch_mins, epoch_secs = epoch_time(start_time, end_time)
+
         model.tb.add_scalar('train_loss', train_loss, epoch)
         model.tb.add_scalar('valid_loss', valid_loss, epoch)
         for name, param in model.named_parameters():
@@ -411,8 +423,9 @@ def fit_model(model, fields, train_iter, valid_iter):
         if valid_loss < best_validation_loss:
             best_validation_loss = valid_loss
             torch.save(model.state_dict(), MODEL_SAVE_PATH)
-            print(
-                f'| Epoch: {epoch + 1:03} | Train Loss: {train_loss:.3f} | Train PPL: {math.exp(train_loss):7.3f} | Val. Loss: {valid_loss:.3f} | Val. PPL: {math.exp(valid_loss):7.3f} |')
+        print(f'Epoch: {epoch + 1:02} | Time: {epoch_mins}m {epoch_secs}s')
+        print(f'\tTrain Loss: {train_loss:.3f} | Train PPL: {math.exp(train_loss):7.3f}')
+        print(f'\t Val. Loss: {valid_loss:.3f} |  Val. PPL: {math.exp(valid_loss):7.3f}')
     model.tb.close()
 
 
@@ -495,8 +508,6 @@ def main():
                                     device=device)
         model = Seq2Seq(config, vocab)
         fit_model(model, fields, train_iter, valid_iter)
-
-
 
     # Create a set of iterators
     train_iter = BucketIterator(trn,
