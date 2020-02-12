@@ -35,7 +35,7 @@ def greedy_decode(model, vocab, fields, trg_indexes, hidden, cell, max_len):
         predicted, hidden, cell = model.decoder(trg_tensor, hidden, cell)
         pred_token = predicted.argmax(1).item()
         trg.append(pred_token)
-        trg_indexes.append(pred_token)
+        trg_indexes = torch.cat((trg_indexes, torch.LongTensor([pred_token]).to(device)), 0)
         if pred_token == vocab.stoi[fields['answer'].eos_token]:
             break
     return [vocab.itos[i] for i in trg]
@@ -234,14 +234,21 @@ class Encoder(nn.Module):
         self.dropout = nn.Dropout(self.dropout_rate).to(device)
 
     def forward(self, input_sequence):
-        # Convert input_sequence to word embeddings
-        embeds_q = self.embedder(input_sequence[0]).to(device)
+        use_padded = False
+        if isinstance(input_sequence, tuple):
+            use_padded = True
+            input_lengths = input_sequence[1]
+            input_sequence = input_sequence[0]
+        embeds_q = self.embedder(input_sequence).to(device)
         embedded = self.dropout(embeds_q).to(device)
-        inp_packed = pack_padded_sequence(embedded, input_sequence[1], batch_first=False, enforce_sorted=False)
-        outputs, (hidden, cell) = self.lstm(inp_packed)
-        outputs, output_lengths = pad_packed_sequence(outputs, batch_first=False,
-                                                      padding_value=input_sequence[0][0][0],
-                                                      total_length=input_sequence[0].shape[0])
+        if use_padded:
+            inp_packed = pack_padded_sequence(embedded, input_lengths, batch_first=False, enforce_sorted=False)
+            outputs, (hidden, cell) = self.lstm(inp_packed)
+            outputs, output_lengths = pad_packed_sequence(outputs, batch_first=False,
+                                                          padding_value=input_sequence[0][0][0],
+                                                          total_length=input_sequence[0].shape[0])
+        else:
+            outputs, (hidden, cell) = self.lstm(embedded)
         return outputs, hidden, cell
 
 

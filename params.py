@@ -1,7 +1,7 @@
 SEED = 5  # set seed value for deterministic results
 CLIP = 10
 
-N_EPOCHS = 15
+N_EPOCHS = 10
 
 JOIN_TOKEN = " "
 

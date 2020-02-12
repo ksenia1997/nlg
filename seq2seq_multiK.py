@@ -1,4 +1,3 @@
-import math
 import random
 import time
 
@@ -14,6 +13,8 @@ from torchtext.data import TabularDataset
 from torchtext.vocab import GloVe
 
 from params import *
+from preprocessing import tokenize, nlp
+from utils.csv import *
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -101,13 +102,21 @@ class Encoder(nn.Module):
 
     def forward(self, input_sequence):
         # Convert input_sequence to word embeddings
-        embeds_q = self.embedder(input_sequence[0]).to(device)
+        use_padded = False
+        if isinstance(input_sequence, tuple):
+            use_padded = True
+            input_lengths = input_sequence[1]
+            input_sequence = input_sequence[0]
+        embeds_q = self.embedder(input_sequence).to(device)
         embedded = self.dropout(embeds_q).to(device)
-        inp_packed = pack_padded_sequence(embedded, input_sequence[1], batch_first=False, enforce_sorted=False)
-        outputs, (hidden, cell) = self.lstm(inp_packed)
-        outputs, output_lengths = pad_packed_sequence(outputs, batch_first=False,
-                                                      padding_value=input_sequence[0][0][0],
-                                                      total_length=input_sequence[0].shape[0])
+        if use_padded:
+            inp_packed = pack_padded_sequence(embedded, input_lengths, batch_first=False, enforce_sorted=False)
+            outputs, (hidden, cell) = self.lstm(inp_packed)
+            outputs, output_lengths = pad_packed_sequence(outputs, batch_first=False,
+                                                          padding_value=input_sequence[0][0][0],
+                                                          total_length=input_sequence[0].shape[0])
+        else:
+            outputs, (hidden, cell) = self.lstm(embedded)
         return outputs, hidden, cell
 
 
@@ -259,6 +268,32 @@ def evaluate(model, iterator, criterion):
     return epoch_loss / len(iterator)
 
 
+def greedy_decode(model, vocab, trg_indexes, hidden, cell, max_len):
+    trg = []
+    for i in range(max_len):
+        trg_tensor = torch.LongTensor([trg_indexes[-1]]).to(device)
+        predicted, hidden, cell = model.decoder(trg_tensor, hidden, cell)
+        pred_token = predicted.argmax(1).item()
+        trg.append(pred_token)
+        trg_indexes = torch.cat((trg_indexes, torch.LongTensor([pred_token]).to(device)), 0)
+        if pred_token == vocab.stoi[TRG.eos_token]:
+            break
+    return [vocab.itos[i] for i in trg]
+
+
+def test(example, vocab, model):
+    model.eval()
+    _, tokenized = tokenize(example, nlp)
+    tokenized = [SRC.init_token] + tokenized + [SRC.eos_token]
+    numericalized = [vocab.stoi[t] for t in tokenized]
+    src_tensor = torch.LongTensor(numericalized).unsqueeze(1).to(device)
+    output, hidden, cell = model.encoder(src_tensor)
+    trg_indexes = [vocab.stoi[TRG.init_token]]
+    trg_tensor = torch.LongTensor([trg_indexes[-1]]).to(device)
+    trg_tensor = greedy_decode(model, vocab, trg_tensor, hidden, cell, 10)
+    return trg_tensor
+
+
 def epoch_time(start_time, end_time):
     elapsed_time = end_time - start_time
     elapsed_mins = int(elapsed_time / 60)
@@ -270,32 +305,48 @@ N_EPOCHS = 10
 
 best_valid_loss = float('inf')
 
-for epoch in range(N_EPOCHS):
+# for epoch in range(N_EPOCHS):
+#
+#     start_time = time.time()
+#
+#     train_loss = train(model, train_iterator, optimizer, criterion, CLIP)
+#     valid_loss = evaluate(model, valid_iterator, criterion)
+#
+#     end_time = time.time()
+#
+#     model.tb.add_scalar('train_loss', train_loss, epoch)
+#     model.tb.add_scalar('valid_loss', valid_loss, epoch)
+#     for name, param in model.named_parameters():
+#         # print("name: ", name, param)
+#         if param.grad is not None and not param.grad.data.is_sparse:
+#             # print("param grad: ", param.grad)
+#             # print("data: ", param.grad.data)
+#             model.tb.add_histogram(f"gradients_wrt_hidden_{name}/",
+#                                    param.grad.data.norm(p=2, dim=0),
+#                                    global_step=epoch)
+#
+#     epoch_mins, epoch_secs = epoch_time(start_time, end_time)
+#
+#     if valid_loss < best_valid_loss:
+#         best_valid_loss = valid_loss
+#         torch.save(model.state_dict(), 'tut1-model.pt')
+#
+#     print(f'Epoch: {epoch + 1:02} | Time: {epoch_mins}m {epoch_secs}s')
+#     print(f'\tTrain Loss: {train_loss:.3f} | Train PPL: {math.exp(train_loss):7.3f}')
+#     print(f'\t Val. Loss: {valid_loss:.3f} |  Val. PPL: {math.exp(valid_loss):7.3f}')
 
-    start_time = time.time()
-
-    train_loss = train(model, train_iterator, optimizer, criterion, CLIP)
-    valid_loss = evaluate(model, valid_iterator, criterion)
-
-    end_time = time.time()
-
-    model.tb.add_scalar('train_loss', train_loss, epoch)
-    model.tb.add_scalar('valid_loss', valid_loss, epoch)
-    for name, param in model.named_parameters():
-        # print("name: ", name, param)
-        if param.grad is not None and not param.grad.data.is_sparse:
-            # print("param grad: ", param.grad)
-            # print("data: ", param.grad.data)
-            model.tb.add_histogram(f"gradients_wrt_hidden_{name}/",
-                                   param.grad.data.norm(p=2, dim=0),
-                                   global_step=epoch)
-
-    epoch_mins, epoch_secs = epoch_time(start_time, end_time)
-
-    if valid_loss < best_valid_loss:
-        best_valid_loss = valid_loss
-        torch.save(model.state_dict(), 'tut1-model.pt')
-
-    print(f'Epoch: {epoch + 1:02} | Time: {epoch_mins}m {epoch_secs}s')
-    print(f'\tTrain Loss: {train_loss:.3f} | Train PPL: {math.exp(train_loss):7.3f}')
-    print(f'\t Val. Loss: {valid_loss:.3f} |  Val. PPL: {math.exp(valid_loss):7.3f}')
+model.load_state_dict(torch.load('tut1-model.pt', map_location=torch.device(device)))
+test_data = load_csv('datasets/test.csv')
+data_to_save = []
+for i in range(0, len(test_data), 2):
+    answer = test(test_data[i], TRG.vocab, model)
+    answer_str = ""
+    for a in answer:
+        answer_str += a + " "
+    data_to_save.append(test_data[i])
+    data_to_save.append(answer_str)
+    if i % 1000 == 0:
+        print("QUESTION: ", test_data[i])
+        print("ANSWER: ", answer_str)
+file_path = "./tests/" + time.strftime('%d-%m-%Y_%H:%M:%S') + ".csv"
+save_to_csv(file_path, data_to_save)

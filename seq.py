@@ -14,6 +14,8 @@ from torchtext.datasets import Multi30k
 from torchtext.vocab import GloVe
 
 from params import *
+from preprocessing import tokenize, nlp
+from utils.csv import *
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -254,6 +256,33 @@ def evaluate(model, iterator, criterion):
     return epoch_loss / len(iterator)
 
 
+def greedy_decode(model, vocab, trg_indexes, hidden, cell, max_len):
+    trg = []
+    for i in range(max_len):
+        trg_tensor = torch.LongTensor([trg_indexes[-1]]).to(device)
+        predicted, hidden, cell = model.decoder(trg_tensor, hidden, cell)
+        pred_token = predicted.argmax(1).item()
+        trg.append(pred_token)
+        trg_indexes = torch.cat((trg_indexes, torch.LongTensor([pred_token]).to(device)), 0)
+        if pred_token == vocab.stoi[TRG.eos_token]:
+            break
+    return [vocab.itos[i] for i in trg]
+
+
+def test(example, vocab, model):
+    print("example: ", example)
+    model.eval()
+    _, tokenized = tokenize(example, nlp)
+    tokenized = [SRC.init_token] + tokenized + [SRC.eos_token]
+    numericalized = [vocab.stoi[t] for t in tokenized]
+    src_tensor = torch.LongTensor(numericalized).unsqueeze(1).to(device)
+    output, hidden, cell = model.encoder(src_tensor)
+    trg_indexes = [vocab.stoi[TRG.init_token]]
+    trg_tensor = torch.LongTensor([trg_indexes[-1]]).to(device)
+    trg_tensor = greedy_decode(model, vocab, trg_tensor, hidden, cell, 10)
+    return trg_tensor
+
+
 def epoch_time(start_time, end_time):
     elapsed_time = end_time - start_time
     elapsed_mins = int(elapsed_time / 60)
@@ -284,7 +313,7 @@ for epoch in range(N_EPOCHS):
             model.tb.add_histogram(f"gradients_wrt_hidden_{name}/",
                                    param.grad.data.norm(p=2, dim=0),
                                    global_step=epoch)
-            
+
     epoch_mins, epoch_secs = epoch_time(start_time, end_time)
 
     if valid_loss < best_valid_loss:
@@ -295,3 +324,20 @@ for epoch in range(N_EPOCHS):
     print(f'\tTrain Loss: {train_loss:.3f} | Train PPL: {math.exp(train_loss):7.3f}')
     print(f'\t Val. Loss: {valid_loss:.3f} |  Val. PPL: {math.exp(valid_loss):7.3f}')
 
+model.load_state_dict(torch.load('tut1-model.pt', map_location=torch.device(device)))
+data_to_save = []
+file = open(".data/multi30k/test2016.de", "r")
+i = 0
+for line in file:
+    i += 1
+    answer = test(line, TRG.vocab, model)
+    answer_str = ""
+    for a in answer:
+        answer_str += a + " "
+    data_to_save.append(line)
+    data_to_save.append(answer_str)
+    if i % 1000 == 0:
+        print("QUESTION: ", line)
+        print("ANSWER: ", answer_str)
+file_path = "./tests/" + time.strftime('%d-%m-%Y_%H:%M:%S') + ".csv"
+save_to_csv(file_path, data_to_save)
