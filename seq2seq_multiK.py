@@ -7,12 +7,11 @@ import spacy
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from tensorboardX import SummaryWriter
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 from torchtext.data import Field, BucketIterator
 from torchtext.datasets import Multi30k
 from torchtext.vocab import GloVe
-
+from torchtext.data import TabularDataset
 from params import *
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -41,20 +40,24 @@ def tokenize_en(text):
     return [tok.text for tok in spacy_en.tokenizer(text)]
 
 
-SRC = Field(tokenize=tokenize_de,
+SRC = Field(tokenize=lambda s: str.split(s, sep=JOIN_TOKEN),
             include_lengths=True,
             init_token='<sos>',
             eos_token='<eos>',
             lower=True)
 
-TRG = Field(tokenize=tokenize_en,
+TRG = Field(tokenize=lambda s: str.split(s, sep=JOIN_TOKEN),
             include_lengths=True,
             init_token='<sos>',
             eos_token='<eos>',
             lower=True)
 
-train_data, valid_data, test_data = Multi30k.splits(exts=('.de', '.en'),
-                                                    fields=(SRC, TRG))
+train_data, valid_data, test_data = TabularDataset.splits(
+        path="./datasets",  # the root directory where the data lies
+        train='train.csv', validation="valid.csv", test='test.csv',
+        format='csv',
+        skip_header=False,
+        fields=[('question', SRC), ('answer', TRG)])
 
 print(vars(train_data.examples[0]))
 
