@@ -18,6 +18,7 @@ from torchtext.vocab import GloVe
 from preprocessing import *
 from utils.create_histogram import *
 
+
 # Create Field object
 # TEXT = data.Field(tokenize = 'spacy', lower=True, include_lengths = True, init_token = '<sos>',  eos_token = '<eos>')
 TEXT = Field(sequential=True, tokenize=lambda s: str.split(s, sep=JOIN_TOKEN), include_lengths=True, init_token='<sos>',
@@ -35,6 +36,7 @@ def greedy_decode(model, vocab, fields, trg_indexes, hidden, cell, max_len):
         predicted, hidden, cell = model.decoder(trg_tensor, hidden, cell)
         pred_token = predicted.argmax(1).item()
         trg.append(pred_token)
+        trg_indexes.append(pred_token)
         if pred_token == vocab.stoi[fields['answer'].eos_token]:
             break
     return [vocab.itos[i] for i in trg]

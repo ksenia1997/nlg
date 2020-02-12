@@ -9,7 +9,7 @@ from torch.autograd import Variable
 from torchtext import *
 from torchtext.data import Field
 
-from params import *
+from preprocessing import *
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -17,20 +17,20 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 class Embedder(nn.Module):
     def __init__(self, vocab_size, d_model):
         super().__init__()
-        self.embed = nn.Embedding(vocab_size, d_model)
+        self.embed = nn.Embedding(vocab_size, d_model).to(device)
 
     def forward(self, x):
-        return self.embed(x)
+        return self.embed(x).to(device)
 
 
 class PositionalEncoder(nn.Module):
     def __init__(self, d_model, max_seq_len=1000, dropout=0.1):
         super().__init__()
         self.d_model = d_model
-        self.dropout = nn.Dropout(dropout)
+        self.dropout = nn.Dropout(dropout).to(device)
         # create constant 'pe' matrix with values dependant on
         # pos and i
-        pe = torch.zeros(max_seq_len, d_model)
+        pe = torch.zeros(max_seq_len, d_model, device=device)
         for pos in range(max_seq_len):
             for i in range(0, d_model, 2):
                 pe[pos, i] = \
@@ -52,39 +52,6 @@ class PositionalEncoder(nn.Module):
         return self.dropout(x)
 
 
-class MyIterator(data.Iterator):
-    def create_batches(self):
-        if self.train:
-            def pool(d, random_shuffler):
-                for p in data.batch(d, self.batch_size * 100):
-                    p_batch = data.batch(
-                        sorted(p, key=self.sort_key),
-                        self.batch_size, self.batch_size_fn)
-                    for b in random_shuffler(list(p_batch)):
-                        yield b
-
-            self.batches = pool(self.data(), self.random_shuffler)
-
-        else:
-            self.batches = []
-            for b in data.batch(self.data(), self.batch_size,
-                                self.batch_size_fn):
-                self.batches.append(sorted(b, key=self.sort_key))
-
-
-def batch_size_fn(new, count, sofar):
-    "Keep augmenting batch and calculate total number of tokens + padding."
-    global max_src_in_batch, max_tgt_in_batch
-    if count == 1:
-        max_src_in_batch = 0
-        max_tgt_in_batch = 0
-    max_src_in_batch = max(max_src_in_batch, len(new.src))
-    max_tgt_in_batch = max(max_tgt_in_batch, len(new.trg) + 2)
-    src_elements = count * max_src_in_batch
-    tgt_elements = count * max_tgt_in_batch
-    return max(src_elements, tgt_elements)
-
-
 def nopeak_mask(size):
     np_mask = np.triu(np.ones((1, size, size)),
                       k=1).astype('uint8')
@@ -100,9 +67,7 @@ def create_masks(src, trg):
         trg_mask = (trg != TEXT.vocab.stoi['<pad>']).unsqueeze(-2)
         size = trg.size(1)  # get seq_len for matrix
         np_mask = nopeak_mask(size)
-        if trg.is_cuda:
-            np_mask.cuda()
-        trg_mask = trg_mask & np_mask
+        trg_mask = trg_mask & np_mask.to(device)
 
     else:
         trg_mask = None
@@ -155,12 +120,12 @@ class MultiHeadAttention(nn.Module):
         self.d_k = d_model // heads
         self.h = heads
 
-        self.q_linear = nn.Linear(d_model, d_model)
-        self.v_linear = nn.Linear(d_model, d_model)
-        self.k_linear = nn.Linear(d_model, d_model)
+        self.q_linear = nn.Linear(d_model, d_model).to(device)
+        self.v_linear = nn.Linear(d_model, d_model).to(device)
+        self.k_linear = nn.Linear(d_model, d_model).to(device)
 
-        self.dropout = nn.Dropout(dropout)
-        self.out = nn.Linear(d_model, d_model)
+        self.dropout = nn.Dropout(dropout).to(device)
+        self.out = nn.Linear(d_model, d_model).to(device)
 
     def forward(self, q, k, v, mask=None):
         bs = q.size(0)
@@ -252,8 +217,8 @@ class Norm(nn.Module):
         self.size = d_model
 
         # create two learnable parameters to calibrate normalisation
-        self.alpha = nn.Parameter(torch.ones(self.size))
-        self.bias = nn.Parameter(torch.zeros(self.size))
+        self.alpha = nn.Parameter(torch.ones(self.size, device=device))
+        self.bias = nn.Parameter(torch.zeros(self.size, device=device))
 
         self.eps = eps
 
@@ -267,7 +232,7 @@ class Decoder(nn.Module):
     def __init__(self, vocab_size, d_model, N, heads, dropout):
         super().__init__()
         self.N = N
-        self.embed = Embedder(vocab_size, d_model)
+        self.embed = Embedder(vocab_size, d_model).to(device)
         self.pe = PositionalEncoder(d_model, dropout=dropout)
         self.layers = get_clones(DecoderLayer(d_model, heads, dropout), N)
         self.norm = Norm(d_model)
@@ -285,7 +250,7 @@ class Transformer(nn.Module):
         super().__init__()
         self.encoder = Encoder(src_vocab, d_model, N, heads, dropout)
         self.decoder = Decoder(trg_vocab, d_model, N, heads, dropout)
-        self.out = nn.Linear(d_model, trg_vocab)
+        self.out = nn.Linear(d_model, trg_vocab).to(device)
 
     def forward(self, src, trg, src_mask, trg_mask):
         e_outputs = self.encoder(src, src_mask)
@@ -299,6 +264,7 @@ def train():
     total_loss = 0
     model.train()
     print("Train")
+    print(train_iter.batch_size)
     for i, batch in enumerate(train_iter):
         src = batch.src.transpose(0, 1)
         trg = batch.trg.transpose(0, 1)
@@ -315,6 +281,26 @@ def train():
     return total_loss / len(train_iter)
 
 
+def test(text, max_len):
+    model.eval()
+    _, tokenized = tokenize(text, nlp)
+    tokenized = [TEXT.vocab.stoi['<sos>']] + tokenized + [TEXT.vocab.stoi['<eos>']]
+    numericalized = [TEXT.vocab.stoi[t] for t in tokenized]
+    sentence = Variable(torch.LongTensor(numericalized))
+    src_mask = (sentence != TEXT.vocab.stoi['<pad>']).unsqueeze(-2)
+    e_output = model.encoder(sentence, src_mask)
+    outputs = torch.LongTensor([[TEXT.vocab.stoi['<sos>']]])
+    trg_mask = nopeak_mask(1)
+
+    trg = []
+    for i in range(max_len):
+        pass
+    out = model.out(model.decoder(outputs, e_output, src_mask, trg_mask))
+    out = F.softmax(out, dim=-1)
+    probs, ix = out[:, -1].data.topk(1)
+    log_scores = torch.Tensor([math.log(prob) for prob in probs.data[0]]).unsqueeze(0)
+
+
 def evaluate():
     model.eval()
     total_loss = 0
@@ -327,7 +313,6 @@ def evaluate():
         preds = model(src, trg_input, src_mask, trg_mask)
         ys = trg[:, 1:].contiguous().view(-1)
         loss = F.cross_entropy(preds.view(-1, preds.size(-1)), ys, ignore_index=TEXT.vocab.stoi['<pad>'])
-        loss.backward()
         total_loss += loss.item()
     return total_loss / len(train_iter)
 
@@ -340,6 +325,8 @@ def train_model(epochs):
         train_loss = train()
         valid_loss = evaluate()
         if valid_loss < best_validation_loss:
+            best_validation_loss = valid_loss
+            torch.save(model.state_dict(), "transformer.pt")
             print("Valid loss is less: ", valid_loss, train_loss)
         else:
             print("Valid loss NOT less: ", valid_loss, train_loss)
@@ -358,15 +345,18 @@ trn, vld, test = data.TabularDataset.splits(
     fields=data_fields)
 
 TEXT.build_vocab(trn)
-train_iter = MyIterator(trn, batch_size=config["train_batch_size"], device=device,
-                        repeat=False, sort_key=lambda x: (len(x.src), len(x.trg)),
-                        batch_size_fn=batch_size_fn, train=True, shuffle=True)
+train_iter = data.BucketIterator(trn, shuffle=True, sort=False,
+                                 batch_size=config["train_batch_size"],
+                                 repeat=False,
+                                 device=device)
 
-valid_iter = MyIterator(vld, batch_size=config["train_batch_size"], device=device,
-                        repeat=False, sort_key=lambda x: (len(x.src), len(x.trg)),
-                        batch_size_fn=batch_size_fn, train=True, shuffle=True)
+valid_iter = data.BucketIterator(vld, shuffle=False, sort=False,
+                                 batch_size=config["train_batch_size"],
+                                 repeat=False,
+                                 device=device)
 
-model = Transformer(len(TEXT.vocab), len(TEXT.vocab), 512, 2, 8, 0.1)
+model = Transformer(len(TEXT.vocab), len(TEXT.vocab), 512, 6, 8, 0.1)
+
 optimizer = torch.optim.Adam(model.parameters(), lr=0.0001, betas=(0.9, 0.98), eps=1e-9)
 print("Start training")
 train_model(4)
