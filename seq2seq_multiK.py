@@ -7,6 +7,7 @@ import spacy
 import torch
 import torch.nn as nn
 import torch.optim as optim
+from tensorboardX import SummaryWriter
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 from torchtext.data import Field, BucketIterator
 from torchtext.datasets import Multi30k
@@ -198,8 +199,8 @@ def train(model, iterator, optimizer, criterion, clip):
     epoch_loss = 0
 
     for i, batch in enumerate(iterator):
-        src = batch.src
-        trg = batch.trg
+        src = batch.question
+        trg = batch.answer
 
         optimizer.zero_grad()
 
@@ -235,8 +236,8 @@ def evaluate(model, iterator, criterion):
 
     with torch.no_grad():
         for i, batch in enumerate(iterator):
-            src = batch.src
-            trg = batch.trg
+            src = batch.question
+            trg = batch.answer
 
             output = model(src, trg, 0)  # turn off teacher forcing
 
