@@ -113,8 +113,8 @@ class Encoder(nn.Module):
             inp_packed = pack_padded_sequence(embedded, input_lengths, batch_first=False, enforce_sorted=False)
             outputs, (hidden, cell) = self.lstm(inp_packed)
             outputs, output_lengths = pad_packed_sequence(outputs, batch_first=False,
-                                                          padding_value=input_sequence[0][0][0],
-                                                          total_length=input_sequence[0].shape[0])
+                                                          padding_value=input_sequence[0][0],
+                                                          total_length=input_sequence.shape[0])
         else:
             outputs, (hidden, cell) = self.lstm(embedded)
         return outputs, hidden, cell
