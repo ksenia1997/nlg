@@ -7,11 +7,12 @@ import spacy
 import torch
 import torch.nn as nn
 import torch.optim as optim
+from tensorboardX import SummaryWriter
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 from torchtext.data import Field, BucketIterator
-from torchtext.datasets import Multi30k
-from torchtext.vocab import GloVe
 from torchtext.data import TabularDataset
+from torchtext.vocab import GloVe
+
 from params import *
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -53,11 +54,11 @@ TRG = Field(tokenize=lambda s: str.split(s, sep=JOIN_TOKEN),
             lower=True)
 
 train_data, valid_data, test_data = TabularDataset.splits(
-        path="./datasets",  # the root directory where the data lies
-        train='train.csv', validation="valid.csv", test='test.csv',
-        format='csv',
-        skip_header=False,
-        fields=[('question', SRC), ('answer', TRG)])
+    path="./datasets",  # the root directory where the data lies
+    train='train.csv', validation="valid.csv", test='test.csv',
+    format='csv',
+    skip_header=False,
+    fields=[('question', SRC), ('answer', TRG)])
 
 print(vars(train_data.examples[0]))
 
