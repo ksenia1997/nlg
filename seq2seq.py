@@ -7,13 +7,14 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-from tensorboardX import SummaryWriter
+from torch.utils.tensorboard import SummaryWriter
 from torch.nn.utils import clip_grad_norm_
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 from torchtext.data import BucketIterator
 from torchtext.data import Field
 from torchtext.data import TabularDataset
 from torchtext.vocab import GloVe
+from tqdm import tqdm
 
 from preprocessing import *
 from utils.create_histogram import *
@@ -245,8 +246,8 @@ class Encoder(nn.Module):
             inp_packed = pack_padded_sequence(embedded, input_lengths, batch_first=False, enforce_sorted=False)
             outputs, (hidden, cell) = self.lstm(inp_packed)
             outputs, output_lengths = pad_packed_sequence(outputs, batch_first=False,
-                                                          padding_value=input_sequence[0][0][0],
-                                                          total_length=input_sequence[0].shape[0])
+                                                          padding_value=TEXT.vocab.stoi[TEXT.pad_token],
+                                                          total_length=input_sequence.shape[0])
         else:
             outputs, (hidden, cell) = self.lstm(embedded)
         return outputs, hidden, cell
@@ -309,15 +310,17 @@ class Seq2Seq(nn.Module):
         decoder_h = (hidden, cell)
         decoder_input = trg[0][0, :]
         for t in range(1, max_len):
+            # print("IN: " + " ".join([TEXT.vocab.itos[x] for x in decoder_input.tolist()]))
             if WITH_ATTENTION:
                 output, decoder_h, attn_weights = self.decoder(decoder_input, decoder_h, enc_output)
             else:
                 output, hidden, cell = self.decoder(decoder_input, hidden, cell)
             outputs[t] = output
-            use_teacher_force = random.random() < teacher_forcing_ratio
-            top1 = output.argmax(1)
+            use_teacher_force = True  # random.random() < teacher_forcing_ratio
+            top1 = output.argmax(dim=1)
             decoder_input = trg[0][t] if use_teacher_force else top1
-
+            # print("NEXT: " + " ".join([TEXT.vocab.itos[x] for x in decoder_input.tolist()]))
+        # exit()
         return outputs.to(device)
 
 
@@ -338,7 +341,7 @@ def train(model, iterator, optimizer, criterion):
     # loss
     epoch_loss = 0
     print("iterator: ", len(iterator))
-    for i, batch in enumerate(iterator):
+    for i, batch in tqdm(enumerate(iterator), total=len(iterator)):
         src = batch.question
         trg = batch.answer
 
@@ -348,9 +351,20 @@ def train(model, iterator, optimizer, criterion):
         # output is of shape [sequence_len, batch_size, output_dim]
         output = model(src, trg, float('inf'))
 
+        # first output are 00s
+        # the last iteration is not done, therefore we do not need to throw away the last output
+
+        scores = output[1:].view(-1, output.shape[2])
+        targets = trg[0][1:].view(-1)
+
+        pad_mask = targets != TEXT.vocab.stoi[TEXT.pad_token]
+        # filter out pads
+        scores = scores[pad_mask]
+        targets = targets[pad_mask]
+
         # trg shape shape should be [(sequence_len - 1) * batch_size]
         # output shape should be [(sequence_len - 1) * batch_size, output_dim]
-        loss = criterion(output[:-1].view(-1, output.shape[2]), trg[0][1:].view(-1))
+        loss = criterion(scores, targets)
         # backward pass
         loss.backward()
 
@@ -384,16 +398,30 @@ def evaluate(model, iterator, criterion):
         for i, batch in enumerate(iterator):
             src = batch.question
             trg = batch.answer
-            output = model(src, trg, 0)  # turn off the teacher forcing
             # trg shape shape should be [(sequence_len - 1) * batch_size]
             # output shape should be [(sequence_len - 1) * batch_size, output_dim]
-            output = output[:-1].view(-1, output.shape[-1])
-            trg = trg[0][1:].view(-1)
-            loss = criterion(output, trg)
+            output = model(src, trg, float('inf'))
+
+            # first output are 00s
+            # the last iteration is not done, therefore we do not need to throw away the last output
+
+            scores = output[1:].view(-1, output.shape[2])
+            targets = trg[0][1:].view(-1)
+
+            pad_mask = targets != TEXT.vocab.stoi[TEXT.pad_token]
+            # filter out pads
+            scores = scores[pad_mask]
+            targets = targets[pad_mask]
+
+            # trg shape shape should be [(sequence_len - 1) * batch_size]
+            # output shape should be [(sequence_len - 1) * batch_size, output_dim]
+            loss = criterion(scores, targets)
+
             epoch_loss += loss.item()
             # if (i + 1) % 100 == 0:
             #    print("eval loss: ", epoch_loss / i)
     return epoch_loss / len(iterator)
+
 
 def epoch_time(start_time, end_time):
     elapsed_time = end_time - start_time
