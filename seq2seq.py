@@ -18,8 +18,6 @@ from torchtext.vocab import GloVe
 from preprocessing import *
 from utils.create_histogram import *
 
-# Create Field object
-# TEXT = data.Field(tokenize = 'spacy', lower=True, include_lengths = True, init_token = '<sos>',  eos_token = '<eos>')
 TEXT = Field(sequential=True, tokenize=lambda s: str.split(s, sep=JOIN_TOKEN), include_lengths=True, init_token='<sos>',
              eos_token='<eos>', pad_token='<pad>', lower=True)
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -337,7 +335,6 @@ def train(model, iterator, optimizer, criterion):
     model.train()
     # loss
     epoch_loss = 0
-    print("iterator: ", len(iterator))
     for i, batch in enumerate(iterator):
         src = batch.question
         trg = batch.answer
@@ -395,6 +392,7 @@ def evaluate(model, iterator, criterion):
             #    print("eval loss: ", epoch_loss / i)
     return epoch_loss / len(iterator)
 
+
 def epoch_time(start_time, end_time):
     elapsed_time = end_time - start_time
     elapsed_mins = int(elapsed_time / 60)
@@ -448,7 +446,7 @@ def test_model(example, fields, vocab, model):
     if IS_BEAM_SEARCH:
         trg_tensor = beam_decode(model.decoder, vocab, fields, trg_tensor, hidden, cell)
     else:
-        trg_tensor = greedy_decode(model, vocab, fields, trg_tensor, hidden, cell, 10)
+        trg_tensor = greedy_decode(model, vocab, fields, trg_tensor, hidden, cell, 100)
     return trg_tensor
 
 

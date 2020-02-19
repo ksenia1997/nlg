@@ -1,5 +1,6 @@
 import copy
 import math
+import time
 
 import numpy as np
 import torch
@@ -197,7 +198,7 @@ class Encoder(nn.Module):
     def __init__(self, vocab_size, d_model, N, heads, dropout):
         super().__init__()
         self.N = N
-        self.embed = Embedder(vocab_size, d_model)
+        self.embed = Embedder(vocab_size, d_model).to(device)
         self.pe = PositionalEncoder(d_model, dropout=dropout)
         self.layers = get_clones(EncoderLayer(d_model, heads, dropout), N)
         self.norm = Norm(d_model)
@@ -248,8 +249,8 @@ class Decoder(nn.Module):
 class Transformer(nn.Module):
     def __init__(self, src_vocab, trg_vocab, d_model, N, heads, dropout):
         super().__init__()
-        self.encoder = Encoder(src_vocab, d_model, N, heads, dropout)
-        self.decoder = Decoder(trg_vocab, d_model, N, heads, dropout)
+        self.encoder = Encoder(src_vocab, d_model, N, heads, dropout).to(device)
+        self.decoder = Decoder(trg_vocab, d_model, N, heads, dropout).to(device)
         self.out = nn.Linear(d_model, trg_vocab).to(device)
 
     def forward(self, src, trg, src_mask, trg_mask):
@@ -264,7 +265,6 @@ def train():
     total_loss = 0
     model.train()
     print("Train")
-    print(train_iter.batch_size)
     for i, batch in enumerate(train_iter):
         src = batch.src.transpose(0, 1)
         trg = batch.trg.transpose(0, 1)
@@ -281,24 +281,33 @@ def train():
     return total_loss / len(train_iter)
 
 
-def test(text, max_len):
+def test_model(text, max_len):
     model.eval()
     _, tokenized = tokenize(text, nlp)
     tokenized = [TEXT.vocab.stoi['<sos>']] + tokenized + [TEXT.vocab.stoi['<eos>']]
     numericalized = [TEXT.vocab.stoi[t] for t in tokenized]
-    sentence = Variable(torch.LongTensor(numericalized))
+    sentence = Variable(torch.LongTensor(numericalized).to(device))
     src_mask = (sentence != TEXT.vocab.stoi['<pad>']).unsqueeze(-2)
     e_output = model.encoder(sentence, src_mask)
+
     outputs = torch.LongTensor([[TEXT.vocab.stoi['<sos>']]])
     trg_mask = nopeak_mask(1)
 
     trg = []
-    for i in range(max_len):
-        pass
-    out = model.out(model.decoder(outputs, e_output, src_mask, trg_mask))
-    out = F.softmax(out, dim=-1)
-    probs, ix = out[:, -1].data.topk(1)
-    log_scores = torch.Tensor([math.log(prob) for prob in probs.data[0]]).unsqueeze(0)
+    for i in range(1, max_len):
+        print("Outputs: ", outputs.size())
+        out = model.out(model.decoder(outputs[-1], e_output, src_mask, trg_mask))
+        print("Out: ", out.size())
+        out = F.softmax(out, dim=-1)
+        print("Out softmax: ", out.size())
+        probs, ix = out.topk(1)
+        print("probs: ", probs.size())
+        print("IX: ", ix.size())
+        trg.append(probs)
+        outputs = torch.cat((outputs, torch.LongTensor([probs]).to(device)), 0)
+
+    return [TEXT.vocab.itos[k] for k in trg]
+    # log_scores = torch.Tensor([math.log(prob) for prob in probs.data[0]]).unsqueeze(0)
 
 
 def evaluate():
@@ -360,3 +369,18 @@ model = Transformer(len(TEXT.vocab), len(TEXT.vocab), 512, 6, 8, 0.1)
 optimizer = torch.optim.Adam(model.parameters(), lr=0.0001, betas=(0.9, 0.98), eps=1e-9)
 print("Start training")
 train_model(4)
+#model.load_state_dict(torch.load("transformer.pt", map_location=torch.device(device)))
+test_data = load_csv('datasets/test.csv')
+data_to_save = []
+for i in range(0, len(test_data), 2):
+    answer = test_model(test_data[i], 20)
+    answer_str = ""
+    for a in answer:
+        answer_str += a + " "
+    data_to_save.append(test_data[i])
+    data_to_save.append(answer_str)
+    if i % 1000 == 0:
+        print("QUESTION: ", test_data[i])
+        print("ANSWER: ", answer_str)
+file_path = "./tests/" + time.strftime('%d-%m-%Y_%H:%M:%S') + ".csv"
+save_to_csv(file_path, data_to_save)

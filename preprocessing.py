@@ -8,6 +8,7 @@ from spacy.tokenizer import Tokenizer
 
 from params import *
 from utils.csv import *
+from utils.json import *
 
 
 def personas_description(line):
@@ -242,25 +243,33 @@ nlp.tokenizer = create_custom_tokenizer(nlp)
 def prepare_data():
     print("Prepare data")
     if DATA_TYPE == "PERSONA":
-        filename_train = 'datasets/persona_train.csv'
-        filename_valid = 'datasets/persona_valid.csv'
-        filename_test = 'datasets/persona_test.csv'
-        train_data, valid_data, test_data = prepare_Persona_chat('datasets/persona_chat.txt', CONTEXT_PAIR_COUNT)
+        filename_train = DATA_PATH + 'persona_train.csv'
+        filename_valid = DATA_PATH + 'persona_valid.csv'
+        filename_test = DATA_PATH + 'persona_test.csv'
+        train_data, valid_data, test_data = prepare_Persona_chat((DATA_PATH + 'persona_chat.txt'), CONTEXT_PAIR_COUNT)
     elif DATA_TYPE == "TWITTER":
-        filename_train = 'datasets/twitter_train.csv'
-        filename_valid = 'datasets/twitter_valid.csv'
-        filename_test = 'datasets/twitter_test.csv'
-        train_data, valid_data, test_data = prepare_Twitter_data('datasets/twitter_chat.txt')
+        filename_train = DATA_PATH + 'twitter_train.csv'
+        filename_valid = DATA_PATH + 'twitter_valid.csv'
+        filename_test = DATA_PATH + 'twitter_test.csv'
+        train_data, valid_data, test_data = prepare_Twitter_data(DATA_PATH + 'twitter_chat.txt')
     elif DATA_TYPE == "PERSONA_BOTH":
-        filename_train = 'datasets/train.csv'
-        filename_valid = 'datasets/valid.csv'
-        filename_test = 'datasets/test.csv'
-        train_data, valid_data, test_data = prepare_both_Persona_chat('datasets/persona_chat_both.txt', 0)
+        filename_train = DATA_PATH + 'train.csv'
+        filename_valid = DATA_PATH + 'valid.csv'
+        filename_test = DATA_PATH + 'test.csv'
+        train_data, valid_data, test_data = prepare_both_Persona_chat(DATA_PATH + 'persona_chat_both.txt', 0)
 
-    print("train data: ", len(train_data)/2)
-    print("valid data: ", len(valid_data)/2)
-    print("test data: ", len(test_data)/2)
+    print("train data: ", len(train_data) / 2)
+    print("valid data: ", len(valid_data) / 2)
+    print("test data: ", len(test_data) / 2)
+
+    process_data_to_json(DATA_PATH + "train.json", train_data)
+    process_data_to_json(DATA_PATH + "valid.json", valid_data)
+    process_data_to_json(DATA_PATH + "test.json", test_data)
 
     save_to_csv(filename_train, train_data)
     save_to_csv(filename_valid, valid_data)
     save_to_csv(filename_test, test_data)
+
+    process_data_to_bin(DATA_PATH+"train", train_data)
+    process_data_to_bin(DATA_PATH+"valid", valid_data)
+    process_data_to_bin(DATA_PATH+"test", test_data)
