@@ -20,8 +20,8 @@ def process_data_to_json(filename, data):
     create_json(filename, json_data)
 
 
-def process_data_to_bin(filename, data):
-    with open(filename + ".source", 'w') as source ,  open(filename + ".target", 'w') as target:
+def process_data_for_BART(filename, data):
+    with open(filename + ".source", 'w') as source, open(filename + ".target", 'w') as target:
         for i in range(0, len(data), 2):
             source.write(data[i])
             target.write(data[i])

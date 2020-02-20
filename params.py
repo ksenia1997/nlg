@@ -10,7 +10,7 @@ DATA_PATH = "./datasets/"
 MODEL_PATH = "./models/"
 
 # Preprocess
-DATA_TYPE = "PERSONA"  # TWITTER or PERSONA or PERSONA_BOTH
+DATA_TYPE = "PERSONA_BOTH"  # TWITTER or PERSONA or PERSONA_BOTH (PERSONA_BOTH contains descriptions of both people)
 WITH_DESCRIPTION = True
 CONTEXT_PAIR_COUNT = 0
 

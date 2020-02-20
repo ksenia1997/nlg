@@ -270,6 +270,6 @@ def prepare_data():
     save_to_csv(filename_valid, valid_data)
     save_to_csv(filename_test, test_data)
 
-    process_data_to_bin(DATA_PATH+"train", train_data)
-    process_data_to_bin(DATA_PATH+"valid", valid_data)
-    process_data_to_bin(DATA_PATH+"test", test_data)
+    process_data_for_BART(DATA_PATH + "train", train_data)
+    process_data_for_BART(DATA_PATH + "valid", valid_data)
+    process_data_for_BART(DATA_PATH + "test", test_data)
