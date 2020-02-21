@@ -27,11 +27,16 @@ torch.manual_seed(SEED)
 torch.backends.cudnn.deterministic = True
 
 
-def greedy_decode(model, vocab, fields, trg_indexes, hidden, cell, max_len):
+def greedy_decode(model, vocab, fields, trg_indexes, hidden, cell, enc_output,  max_len=100):
     trg = []
+    enc_output = enc_output.permute(1, 0, 2)
+    decoder_h = (hidden, cell)
     for i in range(max_len):
         trg_tensor = torch.LongTensor([trg_indexes[-1]]).to(device)
-        predicted, hidden, cell = model.decoder(trg_tensor, hidden, cell)
+        if WITH_ATTENTION:
+            predicted, decoder_h, attn_weights = model.decoder(trg_tensor, decoder_h, enc_output)
+        else:
+            predicted, hidden, cell = model.decoder(trg_tensor, hidden, cell)
         pred_token = predicted.argmax(1).item()
         trg.append(pred_token)
         trg_indexes = torch.cat((trg_indexes, torch.LongTensor([pred_token]).to(device)), 0)
@@ -468,13 +473,13 @@ def test_model(example, fields, vocab, model):
     tokenized = [fields['question'].init_token] + tokenized + [fields['question'].eos_token]
     numericalized = [vocab.stoi[t] for t in tokenized]
     src_tensor = torch.LongTensor(numericalized).unsqueeze(1).to(device)
-    output, hidden, cell = model.encoder(src_tensor)
+    enc_output, hidden, cell = model.encoder(src_tensor)
     trg_indexes = [vocab.stoi[fields['answer'].init_token]]
     trg_tensor = torch.LongTensor([trg_indexes[-1]]).to(device)
     if IS_BEAM_SEARCH:
         trg_tensor = beam_decode(model.decoder, vocab, fields, trg_tensor, hidden, cell)
     else:
-        trg_tensor = greedy_decode(model, vocab, fields, trg_tensor, hidden, cell, 100)
+        trg_tensor = greedy_decode(model, vocab, fields, trg_tensor, hidden, cell, enc_output,  100)
     return trg_tensor
 
 
