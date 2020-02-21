@@ -499,7 +499,7 @@ def main():
         utr1_length.sort()
         utr2_length.sort()
         plot_histogram('Histogram of your persona description lengths', 'number of words in description',
-                       'number of descriptions',
+                      'number of descriptions',
                        yp_desc, 50, 'persona_desc.pdf')
         plot_histogram('Histogram of partner\'s persona description lengths', 'number of words in description',
                        'number of descriptions', pp_desc, 50, 'partner_desc.pdf')
