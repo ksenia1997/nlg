@@ -7,9 +7,9 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-from torch.utils.tensorboard import SummaryWriter
 from torch.nn.utils import clip_grad_norm_
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
+from torch.utils.tensorboard import SummaryWriter
 from torchtext.data import BucketIterator
 from torchtext.data import Field
 from torchtext.data import TabularDataset
@@ -19,8 +19,8 @@ from tqdm import tqdm
 from preprocessing import *
 from utils.create_histogram import *
 
-TEXT = Field(sequential=True, tokenize=lambda s: str.split(s, sep=JOIN_TOKEN), include_lengths=True, init_token='<sos>',
-             eos_token='<eos>', pad_token='<pad>', lower=True)
+TEXT = Field(sequential=True, tokenize=lambda s: str.split(s, sep=JOIN_TOKEN), include_lengths=True,
+             init_token='<sos>', eos_token='<eos>', pad_token='<pad>', lower=True)
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 random.seed(SEED)
 torch.manual_seed(SEED)
@@ -495,13 +495,13 @@ def main():
         utr2_length.sort()
         plot_histogram('Histogram of your persona description lengths', 'number of words in description',
                        'number of descriptions',
-                       yp_desc, 50, 'persona_desc.png')
+                       yp_desc, 50, 'persona_desc.pdf')
         plot_histogram('Histogram of partner\'s persona description lengths', 'number of words in description',
-                       'number of descriptions', pp_desc, 50, 'partner_desc.png')
+                       'number of descriptions', pp_desc, 50, 'partner_desc.pdf')
         plot_histogram('Histogram of utterances\' lengths of the first person', 'number of words in utterance',
-                       'number of utterances', utr1_length, 50, 'uttr1_length.png')
+                       'number of utterances', utr1_length, 50, 'uttr1_length.pdf')
         plot_histogram('Histogram of utterances\' lengths of the first person', 'number of words in utterance',
-                       'number of utterances', utr2_length, 50, 'uttr2_length.png')
+                       'number of utterances', utr2_length, 50, 'uttr2_length.pdf')
         exit()
 
     # Specify Fields in our dataset

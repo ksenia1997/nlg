@@ -271,5 +271,5 @@ def prepare_data():
     save_to_csv(filename_test, test_data)
 
     process_data_for_BART(DATA_PATH + "train", train_data)
-    process_data_for_BART(DATA_PATH + "valid", valid_data)
+    process_data_for_BART(DATA_PATH + "val", valid_data)
     process_data_for_BART(DATA_PATH + "test", test_data)
