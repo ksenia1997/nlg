@@ -10,7 +10,7 @@ DATA_PATH = "./datasets/"
 MODEL_PATH = "./models/"
 
 # Preprocess
-DATA_TYPE = "PERSONA_BOTH"  # TWITTER or PERSONA or PERSONA_BOTH (PERSONA_BOTH contains descriptions of both people)
+DATA_TYPE = "TWITTER"  # TWITTER or PERSONA or PERSONA_BOTH (PERSONA_BOTH contains descriptions of both people)
 WITH_DESCRIPTION = True
 CONTEXT_PAIR_COUNT = 0
 
@@ -18,9 +18,9 @@ WITH_ATTENTION = False
 IS_BEAM_SEARCH = False
 
 CREATE_HISTOGRAM = False
-PREPARE_DATA = False
+PREPARE_DATA = True
 PREPROCESS = False
-IS_TEST = True
+IS_TEST = False
 
 MODEL_SAVE_PATH = MODEL_PATH + 'seq2seq_model.pt'
 
