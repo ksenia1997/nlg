@@ -7,9 +7,9 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-from torch.utils.tensorboard import SummaryWriter
 from torch.nn.utils import clip_grad_norm_
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
+from torch.utils.tensorboard import SummaryWriter
 from torchtext.data import BucketIterator
 from torchtext.data import Field
 from torchtext.data import TabularDataset
@@ -19,19 +19,24 @@ from tqdm import tqdm
 from preprocessing import *
 from utils.create_histogram import *
 
-TEXT = Field(sequential=True, tokenize=lambda s: str.split(s, sep=JOIN_TOKEN), include_lengths=True, init_token='<sos>',
-             eos_token='<eos>', pad_token='<pad>', lower=True)
+TEXT = Field(sequential=True, tokenize=lambda s: str.split(s, sep=JOIN_TOKEN), include_lengths=True,
+             init_token='<sos>', eos_token='<eos>', pad_token='<pad>', lower=True)
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 random.seed(SEED)
 torch.manual_seed(SEED)
 torch.backends.cudnn.deterministic = True
 
 
-def greedy_decode(model, vocab, fields, trg_indexes, hidden, cell, max_len):
+def greedy_decode(model, vocab, fields, trg_indexes, hidden, cell, enc_output,  max_len=100):
     trg = []
+    enc_output = enc_output.permute(1, 0, 2)
+    decoder_h = (hidden, cell)
     for i in range(max_len):
         trg_tensor = torch.LongTensor([trg_indexes[-1]]).to(device)
-        predicted, hidden, cell = model.decoder(trg_tensor, hidden, cell)
+        if WITH_ATTENTION:
+            predicted, decoder_h, attn_weights = model.decoder(trg_tensor, decoder_h, enc_output)
+        else:
+            predicted, hidden, cell = model.decoder(trg_tensor, hidden, cell)
         pred_token = predicted.argmax(1).item()
         trg.append(pred_token)
         trg_indexes = torch.cat((trg_indexes, torch.LongTensor([pred_token]).to(device)), 0)
@@ -468,13 +473,13 @@ def test_model(example, fields, vocab, model):
     tokenized = [fields['question'].init_token] + tokenized + [fields['question'].eos_token]
     numericalized = [vocab.stoi[t] for t in tokenized]
     src_tensor = torch.LongTensor(numericalized).unsqueeze(1).to(device)
-    output, hidden, cell = model.encoder(src_tensor)
+    enc_output, hidden, cell = model.encoder(src_tensor)
     trg_indexes = [vocab.stoi[fields['answer'].init_token]]
     trg_tensor = torch.LongTensor([trg_indexes[-1]]).to(device)
     if IS_BEAM_SEARCH:
         trg_tensor = beam_decode(model.decoder, vocab, fields, trg_tensor, hidden, cell)
     else:
-        trg_tensor = greedy_decode(model, vocab, fields, trg_tensor, hidden, cell, 100)
+        trg_tensor = greedy_decode(model, vocab, fields, trg_tensor, hidden, cell, enc_output,  100)
     return trg_tensor
 
 
@@ -494,14 +499,14 @@ def main():
         utr1_length.sort()
         utr2_length.sort()
         plot_histogram('Histogram of your persona description lengths', 'number of words in description',
-                       'number of descriptions',
-                       yp_desc, 50, 'persona_desc.png')
+                      'number of descriptions',
+                       yp_desc, 50, 'persona_desc.pdf')
         plot_histogram('Histogram of partner\'s persona description lengths', 'number of words in description',
-                       'number of descriptions', pp_desc, 50, 'partner_desc.png')
+                       'number of descriptions', pp_desc, 50, 'partner_desc.pdf')
         plot_histogram('Histogram of utterances\' lengths of the first person', 'number of words in utterance',
-                       'number of utterances', utr1_length, 50, 'uttr1_length.png')
+                       'number of utterances', utr1_length, 50, 'uttr1_length.pdf')
         plot_histogram('Histogram of utterances\' lengths of the first person', 'number of words in utterance',
-                       'number of utterances', utr2_length, 50, 'uttr2_length.png')
+                       'number of utterances', utr2_length, 50, 'uttr2_length.pdf')
         exit()
 
     # Specify Fields in our dataset
@@ -587,3 +592,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
