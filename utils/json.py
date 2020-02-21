@@ -32,3 +32,4 @@ def process_data_for_BART(filename, data):
 
     source.close()
     target.close()
+
