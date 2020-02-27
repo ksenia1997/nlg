@@ -4,6 +4,7 @@ from itertools import zip_longest
 
 
 def save_to_csv(name, lines):
+    # counter_iam = 0
     with open(name, mode='w') as csv_file:
         fieldnames = ['question', 'answer']
         writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
@@ -11,7 +12,10 @@ def save_to_csv(name, lines):
         if len(lines) % 2 != 0:
             lines = lines[:-1]
         for i in range(0, len(lines), 2):
+            # if str.lower(lines[i+1].split()[0]) == "i" and str.lower(lines[i+1].split()[1]) == "am":
+            #     counter_iam += 1
             writer.writerow({'question': lines[i], 'answer': lines[i + 1]})
+    # print("COUNTER I AM: ", counter_iam)
 
 
 def load_csv(name):

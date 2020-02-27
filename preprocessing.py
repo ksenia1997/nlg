@@ -34,7 +34,6 @@ def prepare_both_Persona_chat(filename, pair_count):
         your_persona_description = []
         partner_persona_description = []
         counter = 0
-
         delimiter_context_dialogue = " CC "
         delimiter = " # "
         delimiter_start = " SS "
@@ -242,6 +241,7 @@ nlp.tokenizer = create_custom_tokenizer(nlp)
 
 def prepare_data():
     print("Prepare data")
+
     if DATA_TYPE == "PERSONA":
         filename_train = DATA_PATH + 'persona_train.csv'
         filename_valid = DATA_PATH + 'persona_valid.csv'
@@ -262,14 +262,14 @@ def prepare_data():
     print("valid data: ", len(valid_data) / 2)
     print("test data: ", len(test_data) / 2)
 
-    process_data_to_json(DATA_PATH + "train.json", train_data)
-    process_data_to_json(DATA_PATH + "valid.json", valid_data)
-    process_data_to_json(DATA_PATH + "test.json", test_data)
+    if PREPARE_BART:
+        process_data_for_BART(DATA_PATH + "train", train_data)
+        process_data_for_BART(DATA_PATH + "val", valid_data)
+        process_data_for_BART(DATA_PATH + "test", test_data)
+        return
 
     save_to_csv(filename_train, train_data)
     save_to_csv(filename_valid, valid_data)
     save_to_csv(filename_test, test_data)
 
-    process_data_for_BART(DATA_PATH + "train", train_data)
-    process_data_for_BART(DATA_PATH + "val", valid_data)
-    process_data_for_BART(DATA_PATH + "test", test_data)
+

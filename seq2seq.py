@@ -27,7 +27,7 @@ torch.manual_seed(SEED)
 torch.backends.cudnn.deterministic = True
 
 
-def greedy_decode(model, vocab, fields, trg_indexes, hidden, cell, enc_output,  max_len=100):
+def greedy_decode(model, vocab, fields, trg_indexes, hidden, cell, enc_output, max_len=100):
     trg = []
     enc_output = enc_output.permute(1, 0, 2)
     decoder_h = (hidden, cell)
@@ -433,7 +433,7 @@ def epoch_time(start_time, end_time):
     return elapsed_mins, elapsed_secs
 
 
-def fit_model(model, fields, train_iter, valid_iter):
+def fit_model(model, fields, train_iter, valid_iter, model_path):
     model.apply(init_weights)
     optimizer = optim.Adam(model.parameters())
     pad_idx = fields['question'].vocab.stoi[fields['answer'].pad_token]
@@ -460,7 +460,7 @@ def fit_model(model, fields, train_iter, valid_iter):
                                        global_step=epoch)
         if valid_loss < best_validation_loss:
             best_validation_loss = valid_loss
-            torch.save(model.state_dict(), MODEL_SAVE_PATH)
+            torch.save(model.state_dict(), model_path)
         print(f'Epoch: {epoch + 1:02} | Time: {epoch_mins}m {epoch_secs}s')
         print(f'\tTrain Loss: {train_loss:.3f} | Train PPL: {math.exp(train_loss):7.3f}')
         print(f'\t Val. Loss: {valid_loss:.3f} |  Val. PPL: {math.exp(valid_loss):7.3f}')
@@ -479,12 +479,12 @@ def test_model(example, fields, vocab, model):
     if IS_BEAM_SEARCH:
         trg_tensor = beam_decode(model.decoder, vocab, fields, trg_tensor, hidden, cell)
     else:
-        trg_tensor = greedy_decode(model, vocab, fields, trg_tensor, hidden, cell, enc_output,  100)
+        trg_tensor = greedy_decode(model, vocab, fields, trg_tensor, hidden, cell, enc_output, 100)
     return trg_tensor
 
 
 def main():
-    if PREPARE_DATA:
+    if PREPARE_DATA or PREPARE_BART:
         prepare_data()
         exit()
 
@@ -499,8 +499,7 @@ def main():
         utr1_length.sort()
         utr2_length.sort()
         plot_histogram('Histogram of your persona description lengths', 'number of words in description',
-                      'number of descriptions',
-                       yp_desc, 50, 'persona_desc.pdf')
+                       'number of descriptions', yp_desc, 50, 'persona_desc.pdf')
         plot_histogram('Histogram of partner\'s persona description lengths', 'number of words in description',
                        'number of descriptions', pp_desc, 50, 'partner_desc.pdf')
         plot_histogram('Histogram of utterances\' lengths of the first person', 'number of words in utterance',
@@ -545,7 +544,7 @@ def main():
                                     repeat=False,
                                     device=device)
         model = Seq2Seq(config, vocab)
-        fit_model(model, fields, train_iter, valid_iter)
+        fit_model(model, fields, train_iter, valid_iter, MODEL_PREPROCESS_SAVE_PATH)
 
     # Create a set of iterators
     train_iter = BucketIterator(trn,
@@ -566,7 +565,7 @@ def main():
         else:
             break
     if PREPROCESS:
-        model.load_state_dict(torch.load(MODEL_SAVE_PATH, map_location=torch.device(device)))
+        model.load_state_dict(torch.load(MODEL_PREPROCESS_SAVE_PATH, map_location=torch.device(device)))
     else:
         model = Seq2Seq(config, vocab)
 
@@ -587,7 +586,7 @@ def main():
         file_path = "./tests/" + time.strftime('%d-%m-%Y_%H:%M:%S') + ".csv"
         save_to_csv(file_path, data_to_save)
     else:
-        fit_model(model, fields, train_iter, valid_iter)
+        fit_model(model, fields, train_iter, valid_iter, MODEL_PATH)
 
 
 if __name__ == "__main__":
