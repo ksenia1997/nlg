@@ -13,3 +13,6 @@ def join_test_source_and_hypo():
     source.close()
     hypo.close()
     save_to_csv("bart_result.csv", lines)
+
+
+join_test_source_and_hypo()
