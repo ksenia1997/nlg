@@ -1,3 +1,4 @@
+import os
 import random
 import re
 import string
@@ -7,8 +8,8 @@ import spacy
 from spacy.tokenizer import Tokenizer
 
 from params import *
-from utils.csv import *
-from utils.json import *
+from utils.csv_process import *
+from utils.json_process import *
 
 
 def personas_description(line):
@@ -22,15 +23,9 @@ def personas_description(line):
         return False, "", ""
 
 
-def prepare_both_Persona_chat(filename, pair_count):
+def prepare_both_Persona_chat(nlp, filename):
     print("Prepare Persona chat with both descriptions")
     with open(filename) as fp:
-        # arr_len_utter1 = []
-        # arr_len_utter2 = []
-        # arr_len_y_descr = []
-        # arr_len_p_descr = []
-        # a_y, a_p = 0, 0
-        # a_u1, a_u2 = 0, 0
         your_persona_description = []
         partner_persona_description = []
         counter = 0
@@ -58,15 +53,11 @@ def prepare_both_Persona_chat(filename, pair_count):
                 if add_description:
                     dialog_counter += 1
                     add_description = False
-                    # for yp in your_persona_description:
-                    #     arr_len_y_descr.append(len(yp.split()))
-                    #     a_y += len(yp.split())
-                    # for pp in partner_persona_description:
-                    #     arr_len_p_descr.append(len(pp.split()))
-                    #     a_p += len(pp.split())
                     context = ""
                     data = []
                     for i in range(len(person1)):
+                        partner_persona_desc_str = JOIN_TOKEN.join(tokenize(partner_persona_desc_str, nlp)[1])
+                        your_persona_desc_str = JOIN_TOKEN.join(tokenize(your_persona_desc_str, nlp)[1])
                         data.append(partner_persona_desc_str + delimiter_context_dialogue + delimiter_start + context)
                         data.append(person1[i])
                         context += person1[i] + delimiter
@@ -88,16 +79,14 @@ def prepare_both_Persona_chat(filename, pair_count):
             if len(sentences) > 1:
                 utterance1 = re.findall(r"\d+ (.*)", sentences[0])[0]
                 utterance2 = sentences[1]
+                utterance1 = JOIN_TOKEN.join(tokenize(utterance1, nlp)[1])
+                utterance2 = JOIN_TOKEN.join(tokenize(utterance2, nlp)[1])
                 person1.append(utterance1)
                 person2.append(utterance2)
-                # arr_len_utter1.append(len(utterance1.split()))
-                # arr_len_utter2.append(len(utterance2.split()))
-                # a_u1 += len(utterance1.split())
-                # a_u2 += len(utterance2.split())
     return train_data, valid_data, test_data
 
 
-def prepare_Twitter_data(filename):
+def prepare_Twitter_data(nlp, filename):
     print("Reading Twitter data")
     train_data = []
     valid_data = []
@@ -105,6 +94,7 @@ def prepare_Twitter_data(filename):
     counter = 0
     with open(filename) as fp:
         for line in fp:
+            line = JOIN_TOKEN.join(tokenize(line, nlp)[1])
             train_data.append(line)
             if counter % 10 == 0:
                 valid_data.append(line)
@@ -115,7 +105,7 @@ def prepare_Twitter_data(filename):
     return train_data, valid_data, test_data
 
 
-def prepare_Persona_chat(filename, context_pair_count):
+def prepare_Persona_chat(nlp, filename, context_pair_count, with_description):
     print("Reading Persona chat")
     train_data = []
     test_data = []
@@ -156,7 +146,7 @@ def prepare_Persona_chat(filename, context_pair_count):
                     else:
                         add_to_test_data = False
             your_persona = re.findall(r"(your persona:.*\\n)", line)
-            if WITH_DESCRIPTION and len(your_persona) > 0:
+            if with_description and len(your_persona) > 0:
                 append_description = True
                 your_persona = re.sub(r"\\n", '', your_persona[0]).split("your persona: ")
                 your_persona_description = delimiter.join(your_persona[1:])
@@ -235,41 +225,40 @@ def create_custom_tokenizer(nlp):
                      token_match=None)
 
 
-nlp = en_core_web_sm.load()
-nlp.tokenizer = create_custom_tokenizer(nlp)
-
-
-def prepare_data():
+def prepare_data(config):
     print("Prepare data")
-
-    if DATA_TYPE == "PERSONA":
-        filename_train = DATA_PATH + 'persona_train.csv'
-        filename_valid = DATA_PATH + 'persona_valid.csv'
-        filename_test = DATA_PATH + 'persona_test.csv'
-        train_data, valid_data, test_data = prepare_Persona_chat((DATA_PATH + 'persona_chat.txt'), CONTEXT_PAIR_COUNT)
-    elif DATA_TYPE == "TWITTER":
-        filename_train = DATA_PATH + 'twitter_train.csv'
-        filename_valid = DATA_PATH + 'twitter_valid.csv'
-        filename_test = DATA_PATH + 'twitter_test.csv'
-        train_data, valid_data, test_data = prepare_Twitter_data(DATA_PATH + 'twitter_chat.txt')
-    elif DATA_TYPE == "PERSONA_BOTH":
-        filename_train = DATA_PATH + 'train.csv'
-        filename_valid = DATA_PATH + 'valid.csv'
-        filename_test = DATA_PATH + 'test.csv'
-        train_data, valid_data, test_data = prepare_both_Persona_chat(DATA_PATH + 'persona_chat_both.txt', 0)
+    nlp = en_core_web_sm.load()
+    nlp.tokenizer = create_custom_tokenizer(nlp)
+    if not os.path.exists(SAVE_DATA_PATH[:-1]):
+        os.makedirs(SAVE_DATA_PATH[:-1])
+    if config["data_type"] == "PERSONA":
+        filename_train = SAVE_DATA_PATH + 'persona_train.csv'
+        filename_valid = SAVE_DATA_PATH + 'persona_valid.csv'
+        filename_test = SAVE_DATA_PATH + 'persona_test.csv'
+        train_data, valid_data, test_data = prepare_Persona_chat(nlp, DATA_PATH + 'persona_chat.txt',
+                                                                 config["context_pair_count"],
+                                                                 config["with_description"])
+    elif config["data_type"] == "TWITTER":
+        filename_train = SAVE_DATA_PATH + 'twitter_train.csv'
+        filename_valid = SAVE_DATA_PATH + 'twitter_valid.csv'
+        filename_test = SAVE_DATA_PATH + 'twitter_test.csv'
+        train_data, valid_data, test_data = prepare_Twitter_data(nlp, DATA_PATH + 'twitter_chat.txt')
+    elif config["data_type"] == "PERSONA_BOTH":
+        filename_train = SAVE_DATA_PATH + 'train.csv'
+        filename_valid = SAVE_DATA_PATH + 'valid.csv'
+        filename_test = SAVE_DATA_PATH + 'test.csv'
+        train_data, valid_data, test_data = prepare_both_Persona_chat(nlp, DATA_PATH + 'persona_chat_both.txt')
 
     print("train data: ", len(train_data) / 2)
     print("valid data: ", len(valid_data) / 2)
     print("test data: ", len(test_data) / 2)
 
-    if PREPARE_BART:
-        process_data_for_BART(DATA_PATH + "train", train_data)
-        process_data_for_BART(DATA_PATH + "val", valid_data)
-        process_data_for_BART(DATA_PATH + "test", test_data)
+    if config["data_BART"]:
+        process_data_for_BART(SAVE_DATA_PATH + "train", train_data)
+        process_data_for_BART(SAVE_DATA_PATH + "val", valid_data)
+        process_data_for_BART(SAVE_DATA_PATH + "test", test_data)
         return
 
     save_to_csv(filename_train, train_data)
     save_to_csv(filename_valid, valid_data)
     save_to_csv(filename_test, test_data)
-
-

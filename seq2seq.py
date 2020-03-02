@@ -17,7 +17,6 @@ from torchtext.vocab import GloVe
 from tqdm import tqdm
 
 from preprocessing import *
-from utils.create_histogram import *
 
 TEXT = Field(sequential=True, tokenize=lambda s: str.split(s, sep=JOIN_TOKEN), include_lengths=True,
              init_token='<sos>', eos_token='<eos>', pad_token='<pad>', lower=True)
@@ -27,16 +26,16 @@ torch.manual_seed(SEED)
 torch.backends.cudnn.deterministic = True
 
 
-def greedy_decode(model, vocab, trg_indexes, hidden, cell, enc_output, max_len=100):
+def greedy_decode(decoder, with_attention, vocab, trg_indexes, hidden, cell, enc_output, max_len=100):
     trg = []
     enc_output = enc_output.permute(1, 0, 2)
     decoder_h = (hidden, cell)
     for i in range(max_len):
         trg_tensor = torch.LongTensor([trg_indexes[-1]]).to(device)
-        if WITH_ATTENTION:
-            predicted, decoder_h, attn_weights = model.decoder(trg_tensor, decoder_h, enc_output)
+        if with_attention:
+            predicted, decoder_h, attn_weights = decoder(trg_tensor, decoder_h, enc_output)
         else:
-            predicted, hidden, cell = model.decoder(trg_tensor, hidden, cell)
+            predicted, hidden, cell = decoder(trg_tensor, hidden, cell)
         pred_token = predicted.argmax(1).item()
         trg.append(pred_token)
         trg_indexes = torch.cat((trg_indexes, torch.LongTensor([pred_token]).to(device)), 0)
@@ -66,7 +65,8 @@ class BeamSearchNode(object):
         return self.logp / float(self.length - 1 + 1e-6) + alpha * reward
 
 
-def beam_decode_mixed(decoders, scores, vocab, beam_width, max_len, target_tensor, encoder_hiddens, encoder_outputs):
+def beam_decode_mixed(decoders, scores, vocab, beam_width, max_len, max_sentence_count, target_tensor, encoder_hiddens,
+                      encoder_outputs):
     SOS_token = TEXT.init_token
     EOS_token = TEXT.eos_token
 
@@ -89,12 +89,13 @@ def beam_decode_mixed(decoders, scores, vocab, beam_width, max_len, target_tenso
         node = BeamSearchNode(decoder_hidden, None, decoder_input, 0, 1)
         nodes_queue = PriorityQueue()
         nodes_queue.put((-node.eval(), node))
-
+        end_nodes = []
         while not nodes_queue.empty():
             score, n = nodes_queue.get()
-            end_nodes = []
+            if len(end_nodes) >= max_sentence_count:
+                break
             if n.length >= max_len or n.word_ids[-1] == vocab.stoi[EOS_token]:
-                end_nodes.append(n)
+                end_nodes.append((score, n))
                 continue
             decoder_input = torch.LongTensor([n.word_ids[-1]]).to(device)
             decoder_hidden = n.h
@@ -133,12 +134,12 @@ def beam_decode_mixed(decoders, scores, vocab, beam_width, max_len, target_tenso
         for score, n in sorted(end_nodes, key=operator.itemgetter(0)):
             utterance = n.word_ids[::-1]
             sentence = [vocab.itos[i] for i in utterance]
-            sentences += ' '.join(sentence) + " <EOS>\n"
+            sentences += sentence + ["<eos>"]
             decoded_batch.append(sentence)
     return sentences
 
 
-def beam_decode(decoder, vocab, target_tensor, decoder_hiddens, encoder_output):
+def beam_decode(decoder, vocab, target_tensor, decoder_hiddens, encoder_output, with_attention):
     '''
     :param target_tensor: target indexes tensor of shape [B, T] where B is the batch size and T is the maximum length of the output sentence
     :param decoder_hidden: input tensor of shape [1, B, H] for start of the decoding
@@ -187,9 +188,8 @@ def beam_decode(decoder, vocab, target_tensor, decoder_hiddens, encoder_output):
                 else:
                     continue
 
-            if WITH_ATTENTION:
+            if with_attention:
                 predicted, decoder_hidden, attn_weights = decoder(decoder_input, decoder_hidden, encoder_output)
-
             else:
                 # decode for one step using decoder
                 decoder_output, decoder_h, cell = decoder(decoder_input, decoder_hidden[0], decoder_hidden[1])
@@ -365,7 +365,8 @@ class Seq2Seq(nn.Module):
     def __init__(self, config, vocab):
         super().__init__()
         self.encoder = Encoder(config, vocab).to(device)
-        if WITH_ATTENTION:
+        self.with_attention = config["with_attention"]
+        if self.with_attention:
             self.decoder = LuongDecoder(config, vocab).to(device)
         else:
             self.decoder = Decoder(config, vocab).to(device)
@@ -391,7 +392,7 @@ class Seq2Seq(nn.Module):
         decoder_input = trg[0][0, :]
         for t in range(1, max_len):
             # print("IN: " + " ".join([TEXT.vocab.itos[x] for x in decoder_input.tolist()]))
-            if WITH_ATTENTION:
+            if self.with_attention:
                 output, decoder_h, attn_weights = self.decoder(decoder_input, decoder_h, enc_output)
             else:
                 output, hidden, cell = self.decoder(decoder_input, hidden, cell)
@@ -419,7 +420,6 @@ def train(model, iterator, optimizer, criterion, clip):
     model.train()
     # loss
     epoch_loss = 0
-    print("iterator: ", len(iterator))
     for i, batch in tqdm(enumerate(iterator), total=len(iterator)):
         src = batch.question
         trg = batch.answer
@@ -542,8 +542,10 @@ def fit_model(model, train_iter, valid_iter, n_epochs, clip, model_path):
     model.tb.close()
 
 
-def test_model(example, vocab, model):
+def test_model(example, vocab, model, config):
     model.eval()
+    nlp = en_core_web_sm.load()
+    nlp.tokenizer = create_custom_tokenizer(nlp)
     _, tokenized = tokenize(example, nlp)
     tokenized = [TEXT.init_token] + tokenized + [TEXT.eos_token]
     numericalized = [vocab.stoi[t] for t in tokenized]
@@ -551,58 +553,38 @@ def test_model(example, vocab, model):
     enc_output, hidden, cell = model.encoder(src_tensor)
     trg_indexes = [vocab.stoi[TEXT.init_token]]
     trg_tensor = torch.LongTensor([trg_indexes[-1]]).to(device)
-    if IS_BEAM_SEARCH:
-        trg_tensor = beam_decode(model.decoder, vocab, trg_tensor, (hidden, cell), enc_output)
+    if config["decoding_type"] == "beam":
+        trg_tensor = beam_decode(model.decoder, vocab, trg_tensor, (hidden, cell), enc_output, config["with_attention"])
     else:
-        trg_tensor = greedy_decode(model, vocab, trg_tensor, hidden, cell, enc_output, 100)
+        trg_tensor = greedy_decode(model.decoder, config["with_attention"], vocab, trg_tensor, hidden, cell, enc_output,
+                                   100)
     return trg_tensor
 
 
 def run_seq2seq(config):
-    if PREPARE_DATA or PREPARE_BART:
-        prepare_data()
+    if config["prepare_data"] or config["data_BART"]:
+        prepare_data(config)
         exit()
-
-    if CREATE_HISTOGRAM:
-        columns = load_histogram_data('datasets/description.csv')
-        yp_desc = columns['Your persona description length']
-        pp_desc = columns['Partner\'s persona description length']
-        utr1_length = columns['utterance1 length']
-        utr2_length = columns['utterance2 length']
-        yp_desc.sort()
-        pp_desc.sort()
-        utr1_length.sort()
-        utr2_length.sort()
-        plot_histogram('Histogram of your persona description lengths', 'number of words in description',
-                       'number of descriptions', yp_desc, 50, 'persona_desc.pdf')
-        plot_histogram('Histogram of partner\'s persona description lengths', 'number of words in description',
-                       'number of descriptions', pp_desc, 50, 'partner_desc.pdf')
-        plot_histogram('Histogram of utterances\' lengths of the first person', 'number of words in utterance',
-                       'number of utterances', utr1_length, 50, 'uttr1_length.pdf')
-        plot_histogram('Histogram of utterances\' lengths of the first person', 'number of words in utterance',
-                       'number of utterances', utr2_length, 50, 'uttr2_length.pdf')
-        exit()
-
-    # Specify Fields in our dataset
+    # Specify Fields in dataset
     data_fields = [('question', TEXT), ('answer', TEXT)]
     fields = dict(data_fields)
 
     # Build the dataset for train, validation and test sets
     trn, vld, test = TabularDataset.splits(
-        path="./datasets",  # the root directory where the data lies
+        path="./.data",  # the root directory where the data lies
         train='train.csv', validation="valid.csv", test='test.csv',
         format='csv',
         skip_header=True,
         fields=data_fields)
 
     # Build vocabulary
-    print("Build vocabulary")
+    print("Building vocabulary")
     fields["question"].build_vocab(trn, vectors=GloVe(name='6B', dim=config["embedding_dim"]))
     vocab = fields["question"].vocab
     print("len vocab: ", len(vocab))
-    if TRAIN_PREPROCESS:
+    if config["train_preprocess"]:
         train, valid = TabularDataset.splits(
-            path="./datasets",  # the root directory where the data lies
+            path="./.data",
             train='twitter_train.csv', validation="twitter_valid.csv",
             format='csv',
             skip_header=True,
@@ -639,17 +621,14 @@ def run_seq2seq(config):
             print(batch)
         else:
             break
-    if PREPROCESS and not IS_TEST:
-        model.load_state_dict(torch.load(MODEL_PREPROCESS_SAVE_PATH, map_location=torch.device(device)))
-    else:
-        model = Seq2Seq(config, vocab)
 
-    if IS_TEST:
+    if config["process"] == 'test':
+        model = Seq2Seq(config, vocab)
         model.load_state_dict(torch.load(MODEL_SAVE_PATH, map_location=torch.device(device)))
         test_data = load_csv('datasets/test.csv')
         data_to_save = []
         for i in range(0, len(test_data), 2):
-            answer = test_model(test_data[i], vocab, model)
+            answer = test_model(test_data[i], vocab, model, config)
             answer_str = ""
             for a in answer:
                 answer_str += a + " "
@@ -660,5 +639,9 @@ def run_seq2seq(config):
                 print("ANSWER: ", answer_str)
         file_path = "./tests/" + time.strftime('%d-%m-%Y_%H:%M:%S') + ".csv"
         save_to_csv(file_path, data_to_save)
-    else:
+    elif config["process"] == 'train':
+        if config["with_preprocess"]:
+            model.load_state_dict(torch.load(MODEL_PREPROCESS_SAVE_PATH, map_location=torch.device(device)))
+        else:
+            model = Seq2Seq(config, vocab)
         fit_model(model, train_iter, valid_iter, config["n_epochs"], config["clip"], MODEL_SAVE_PATH)

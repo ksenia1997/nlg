@@ -1,4 +1,4 @@
-persona_chat_both.txt
+##persona_chat_both.txt
 
 * average length of  your persona:  6.331842242600462
 * average length of partner's persona:  6.321163335493196
@@ -13,3 +13,4 @@ persona_chat_both.txt
 
 
 * number of dialogues: 8938
+

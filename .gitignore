@@ -2,11 +2,6 @@
 .idea
 .ipynb_checkpoints/seq2seq-checkpoint.ipynb
 .vector_cache
-datasets/train.csv
-datasets/valid.csv
-datasets/test.csv
-datasets/twitter_test.csv
-datasets/twitter_valid.csv
-datasets/twitter_train.csv
+.data/
 __pycache__
 utils/__pycache__
