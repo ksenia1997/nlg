@@ -193,6 +193,31 @@ def prepare_Persona_chat(nlp, filename, context_pair_count, with_description):
     return train_data, valid_data, test_data
 
 
+def prepare_joke_dataset(nlp, reddit_jokes, stupidstuff, wocka):
+    data_reddit = load_json(reddit_jokes)
+    data_stupidstuff = load_json(stupidstuff)
+    data_wocka = load_json(wocka)
+    jokes_train, jokes_valid, jokes_test = [], [], []
+    counter = 0
+    all_data = [data_reddit, data_stupidstuff, data_wocka]
+    for i in range(len(all_data)):
+        for joke in all_data[i]:
+            counter += 1
+            if i == 0:
+                joint_joke = joke["title"] + " " + joke["body"]
+            else:
+                joint_joke = joke["body"]
+            joint_joke = JOIN_TOKEN.join(tokenize(joint_joke, nlp)[1])
+            if random.randint(0, 100) < 5:
+                jokes_test.append(joint_joke)
+            elif counter % 5 == 0:
+                jokes_valid.append(joint_joke)
+            else:
+                jokes_train.append(joint_joke)
+
+    return jokes_train, jokes_valid, jokes_test
+
+
 def tokenize(text: string, t):
     tokens = [tok for tok in t.tokenizer(text) if not tok.text.isspace()]
     text_tokens = [tok.text for tok in tokens]
@@ -231,6 +256,7 @@ def prepare_data(config):
     nlp.tokenizer = create_custom_tokenizer(nlp)
     if not os.path.exists(SAVE_DATA_PATH[:-1]):
         os.makedirs(SAVE_DATA_PATH[:-1])
+
     if config["data_type"] == "PERSONA":
         filename_train = SAVE_DATA_PATH + 'persona_train.csv'
         filename_valid = SAVE_DATA_PATH + 'persona_valid.csv'
@@ -238,16 +264,26 @@ def prepare_data(config):
         train_data, valid_data, test_data = prepare_Persona_chat(nlp, DATA_PATH + 'persona_chat.txt',
                                                                  config["context_pair_count"],
                                                                  config["with_description"])
+
     elif config["data_type"] == "TWITTER":
         filename_train = SAVE_DATA_PATH + 'twitter_train.csv'
         filename_valid = SAVE_DATA_PATH + 'twitter_valid.csv'
         filename_test = SAVE_DATA_PATH + 'twitter_test.csv'
         train_data, valid_data, test_data = prepare_Twitter_data(nlp, DATA_PATH + 'twitter_chat.txt')
+
     elif config["data_type"] == "PERSONA_BOTH":
         filename_train = SAVE_DATA_PATH + 'train.csv'
         filename_valid = SAVE_DATA_PATH + 'valid.csv'
         filename_test = SAVE_DATA_PATH + 'test.csv'
         train_data, valid_data, test_data = prepare_both_Persona_chat(nlp, DATA_PATH + 'persona_chat_both.txt')
+
+    elif config["data_type"] == "JOKE":
+        filename_train = SAVE_DATA_PATH + 'jokes_train.csv'
+        filename_valid = SAVE_DATA_PATH + 'jokes_valid.csv'
+        filename_test = SAVE_DATA_PATH + 'jokes_test.csv'
+        train_data, valid_data, test_data = prepare_joke_dataset(nlp, DATA_PATH + 'reddit_jokes.json',
+                                                                 DATA_PATH + 'stupidstuff.json',
+                                                                 DATA_PATH + 'wocka.json')
 
     print("train data: ", len(train_data) / 2)
     print("valid data: ", len(valid_data) / 2)
@@ -259,6 +295,11 @@ def prepare_data(config):
         process_data_for_BART(SAVE_DATA_PATH + "test", test_data)
         return
 
-    save_to_csv(filename_train, train_data)
-    save_to_csv(filename_valid, valid_data)
-    save_to_csv(filename_test, test_data)
+    if config["data_type"] in ["TWITTER", "PERSONA_BOTH", "PERSONA"]:
+        save_to_csv(filename_train, train_data)
+        save_to_csv(filename_valid, valid_data)
+        save_to_csv(filename_test, test_data)
+    elif config["data_type"] in ["JOKE"]:
+        save_csv_row(filename_train, train_data)
+        save_csv_row(filename_valid, valid_data)
+        save_csv_row(filename_test, test_data)

@@ -1,4 +1,4 @@
-##persona_chat_both.txt
+####persona_chat_both.txt
 
 * average length of  your persona:  6.331842242600462
 * average length of partner's persona:  6.321163335493196
@@ -13,4 +13,13 @@
 
 
 * number of dialogues: 8938
+ 
+from http://parl.ai/downloads/personachat/personachat.tgz 
+ 
+####Files: 
+* reddit_jokes.json
+* wocka.json
+* stupidstuff.json
 
+are taken from 
+https://github.com/taivop/joke-dataset

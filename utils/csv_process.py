@@ -3,18 +3,23 @@ from itertools import zip_longest
 
 
 def save_to_csv(name, lines):
-    # counter_iam = 0
     with open(name, mode='w') as csv_file:
-        fieldnames = ['question', 'answer']
+        fieldnames = ['source', 'target']
         writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
         writer.writeheader()
         if len(lines) % 2 != 0:
             lines = lines[:-1]
         for i in range(0, len(lines), 2):
-            # if str.lower(lines[i+1].split()[0]) == "i" and str.lower(lines[i+1].split()[1]) == "am":
-            #     counter_iam += 1
-            writer.writerow({'question': lines[i], 'answer': lines[i + 1]})
-    # print("COUNTER I AM: ", counter_iam)
+            writer.writerow({'source': lines[i], 'target': lines[i + 1]})
+
+
+def save_csv_row(name, lines):
+    with open(name, mode='w') as csv_file:
+        fieldnames = ['source']
+        writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
+        writer.writeheader()
+        for i in range(len(lines)):
+            writer.writerow({'source': lines[i]})
 
 
 def load_csv(name):
