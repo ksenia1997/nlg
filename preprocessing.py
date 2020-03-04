@@ -101,7 +101,6 @@ def prepare_Twitter_data(nlp, filename):
             if counter % 20 == 0:
                 test_data.append(line)
             counter += 1
-
     return train_data, valid_data, test_data
 
 
@@ -208,13 +207,14 @@ def prepare_joke_dataset(nlp, reddit_jokes, stupidstuff, wocka):
             else:
                 joint_joke = joke["body"]
             joint_joke = JOIN_TOKEN.join(tokenize(joint_joke, nlp)[1])
+            if len(joint_joke.split()) > 1000:
+                continue
             if random.randint(0, 100) < 5:
                 jokes_test.append(joint_joke)
             elif counter % 5 == 0:
                 jokes_valid.append(joint_joke)
             else:
                 jokes_train.append(joint_joke)
-
     return jokes_train, jokes_valid, jokes_test
 
 

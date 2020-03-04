@@ -7,6 +7,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
+from torch.autograd import Variable
 from torch.nn.utils import clip_grad_norm_
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 from torch.utils.tensorboard import SummaryWriter
@@ -409,11 +410,14 @@ class Decoding(nn.Module):
     def __init__(self, config, vocab):
         super().__init__()
         self.decoder = Decoder(config, vocab).to(device)
+        self.num_layers = config["num_layers"]
+        self.batch_size = config["train_batch_size"]
+        self.hidden_dim = config["hidden_dim"]
         experiment_name = "train_" + config["style"] + "_model_" + time.strftime('%d-%m-%Y_%H:%M:%S')
         tensorboard_log_dir = './tensorboard-logs/{}/'.format(experiment_name)
         self.tb = SummaryWriter(tensorboard_log_dir)
 
-    def forward(self, trg, teacher_forcing_ratio=0.1):
+    def forward(self, trg, hidden, cell, teacher_forcing_ratio=0.1):
         max_len, batch_size = trg[0].size()
         decoder_input = trg[0][0, :]
         trg_vocab_size = self.decoder.output_dim
@@ -425,6 +429,11 @@ class Decoding(nn.Module):
             top1 = output.argmax(dim=1)
             decoder_input = trg[0][t] if use_teacher_force else top1
         return outputs.to(device)
+
+    def init_hidden_cell(self, batch_size):
+        hidden = Variable(next(self.parameters()).data.new(self.num_layers, batch_size, self.hidden_dim))
+        cell = Variable(next(self.parameters()).data.new(self.num_layers, batch_size, self.hidden_dim))
+        return hidden, cell
 
 
 def train(model, iterator, optimizer, criterion, clip):
@@ -445,7 +454,6 @@ def train(model, iterator, optimizer, criterion, clip):
     epoch_loss = 0
     for i, batch in tqdm(enumerate(iterator), total=len(iterator)):
         optimizer.zero_grad()
-
         # trg is of shape [sequence_len, batch_size]
         # output is of shape [sequence_len, batch_size, output_dim]
         if model.__class__.__name__ == "Seq2Seq":
@@ -454,7 +462,9 @@ def train(model, iterator, optimizer, criterion, clip):
             output = model(src, trg)
         else:
             trg = batch.source
-            output = model(trg)
+            hidden, cell = model.init_hidden_cell(trg[0].shape[1])
+            hidden, cell = hidden.to(device), cell.to(device)
+            output = model(trg, hidden, cell)
 
         # first output are 00s
         # the last iteration is not done, therefore we do not need to throw away the last output
@@ -509,7 +519,9 @@ def evaluate(model, iterator, criterion):
                 output = model(src, trg)
             else:
                 trg = batch.source
-                output = model(trg)
+                hidden, cell = model.init_hidden_cell(trg[0].shape[1])
+                hidden, cell = hidden.to(device), cell.to(device)
+                output = model(trg, hidden, cell)
 
             # first output are 00s
             # the last iteration is not done, therefore we do not need to throw away the last output
@@ -557,11 +569,12 @@ def fit_model(model, train_iter, valid_iter, n_epochs, clip, model_path):
 
         model.tb.add_scalar('train_loss', train_loss, epoch)
         model.tb.add_scalar('valid_loss', valid_loss, epoch)
-        for name, param in model.named_parameters():
-            if param.grad is not None and not param.grad.data.is_sparse:
-                model.tb.add_histogram(f"gradients_wrt_hidden_{name}/",
-                                       param.grad.data.norm(p=2, dim=0),
-                                       global_step=epoch)
+        if model.__class__.__name__ == "Seq2Seq":
+            for name, param in model.named_parameters():
+                if param.grad is not None and not param.grad.data.is_sparse:
+                    model.tb.add_histogram(f"gradients_wrt_hidden_{name}/",
+                                           param.grad.data.norm(p=2, dim=0),
+                                           global_step=epoch)
         if valid_loss < best_validation_loss:
             best_validation_loss = valid_loss
             torch.save(model.state_dict(), model_path)
@@ -632,24 +645,25 @@ def run_seq2seq(config):
         model = Seq2Seq(config, vocab)
         fit_model(model, train_iter, valid_iter, config["n_epochs"], config["clip"], MODEL_PREPROCESS_SAVE_PATH)
 
-    # Create a set of iterators
-    train_iter = BucketIterator(trn,
-                                shuffle=True, sort=False,
-                                batch_size=config["train_batch_size"],
-                                repeat=False,
-                                device=device)
-    valid_iter = BucketIterator(vld,
-                                shuffle=False, sort=False,
-                                batch_size=config["train_batch_size"],
-                                repeat=False,
-                                device=device)
+    if config["process"] != 'train_decoder':
+        # Create a set of iterators
+        train_iter = BucketIterator(trn,
+                                    shuffle=True, sort=False,
+                                    batch_size=config["train_batch_size"],
+                                    repeat=False,
+                                    device=device)
+        valid_iter = BucketIterator(vld,
+                                    shuffle=False, sort=False,
+                                    batch_size=config["train_batch_size"],
+                                    repeat=False,
+                                    device=device)
 
-    # print("Most common: ", vocab.freqs.most_common(50))
-    for i, batch in enumerate(train_iter):
-        if i < 2:
-            print(batch)
-        else:
-            break
+        # print("Most common: ", vocab.freqs.most_common(50))
+        for i, batch in enumerate(train_iter):
+            if i < 2:
+                print(batch)
+            else:
+                break
 
     if config["process"] == 'test':
         model = Seq2Seq(config, vocab)
@@ -675,7 +689,8 @@ def run_seq2seq(config):
             model = Seq2Seq(config, vocab)
         fit_model(model, train_iter, valid_iter, config["n_epochs"], config["clip"], MODEL_SAVE_PATH)
     elif config["process"] == 'train_decoder':
-        model = Decoding(config, vocab)
+        print("train decoder")
+        model = Decoding(config, vocab).to(device)
         data_fields = [('source', TEXT)]
         if config["style"] == 'funny':
             train_filename = 'jokes_train.csv'
@@ -701,4 +716,9 @@ def run_seq2seq(config):
                                     batch_size=config["train_batch_size"],
                                     repeat=False,
                                     device=device)
+        for i, batch in enumerate(train_iter):
+            if i < 2:
+                print(batch)
+            else:
+                break
         fit_model(model, train_iter, valid_iter, config["n_epochs"], config["clip"], save_path)
