@@ -23,3 +23,6 @@ from http://parl.ai/downloads/personachat/personachat.tgz
 
 are taken from 
 https://github.com/taivop/joke-dataset
+
+short jokes
+https://www.kaggle.com/abhinavmoudgil95/short-jokes

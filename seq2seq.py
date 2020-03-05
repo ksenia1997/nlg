@@ -7,7 +7,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-from torch.autograd import Variable
 from torch.nn.utils import clip_grad_norm_
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 from torch.utils.tensorboard import SummaryWriter
@@ -70,8 +69,9 @@ def beam_decode_mixed(decoders, scores, vocab, beam_width, max_len, max_sentence
                       encoder_outputs):
     SOS_token = TEXT.init_token
     EOS_token = TEXT.eos_token
-
-    assert len(decoders) == len(scores), "Number of decoders should equal to the number of scores"
+    # can be 1 or several decoders
+    if len(decoders) != 1:
+        assert len(decoders) == len(scores), "Number of decoders should equal to the number of scores"
     assert sum(scores) == 1, "Sum of scores must be 1"
 
     decoded_batch = []
@@ -123,6 +123,7 @@ def beam_decode_mixed(decoders, scores, vocab, beam_width, max_len, max_sentence
                     new_cell = torch.add(new_cell, cell * scores[i])
 
             log_prob, indexes = torch.topk(decoder_out_scored, beam_width)
+            print("log probs: ", log_prob.size(), indexes.size())
             decoder_hidden = (new_hidden, new_cell)
             for new_k in range(beam_width):
                 decoded_t = indexes[0][new_k].unsqueeze(0)
@@ -351,13 +352,16 @@ class Decoder(nn.Module):
         self.linear = nn.Linear(self.hidden_dim, self.output_dim).to(device)
         self.dropout = nn.Dropout(self.dropout_rate).to(device)
 
-    def forward(self, inputs, hidden, cell):
+    def forward(self, inputs, hidden=None, cell=None):
         inputs = inputs.unsqueeze(0)
         # inputs [1,batch_size]
         embedded = self.embedder(inputs).to(device)
         embedded = self.dropout(embedded).to(device)
         # embedded [1, batch_size, embedded_dim]
-        output, (hidden, cell) = self.lstm(embedded, (hidden, cell))
+        if hidden == None or cell == None:
+            output, (hidden, cell) = self.lstm(embedded)
+        else:
+            output, (hidden, cell) = self.lstm(embedded, (hidden, cell))
         predicted = F.log_softmax(self.linear(output.squeeze(0)).to(device), dim=1)
         return predicted, hidden, cell
 
@@ -406,7 +410,7 @@ class Seq2Seq(nn.Module):
         return outputs.to(device)
 
 
-class Decoding(nn.Module):
+class LM(nn.Module):
     def __init__(self, config, vocab):
         super().__init__()
         self.decoder = Decoder(config, vocab).to(device)
@@ -417,7 +421,7 @@ class Decoding(nn.Module):
         tensorboard_log_dir = './tensorboard-logs/{}/'.format(experiment_name)
         self.tb = SummaryWriter(tensorboard_log_dir)
 
-    def forward(self, trg, hidden, cell, teacher_forcing_ratio=0.1):
+    def forward(self, trg, hidden=None, cell=None, teacher_forcing_ratio=0.1):
         max_len, batch_size = trg[0].size()
         decoder_input = trg[0][0, :]
         trg_vocab_size = self.decoder.output_dim
@@ -429,11 +433,6 @@ class Decoding(nn.Module):
             top1 = output.argmax(dim=1)
             decoder_input = trg[0][t] if use_teacher_force else top1
         return outputs.to(device)
-
-    def init_hidden_cell(self, batch_size):
-        hidden = Variable(next(self.parameters()).data.new(self.num_layers, batch_size, self.hidden_dim))
-        cell = Variable(next(self.parameters()).data.new(self.num_layers, batch_size, self.hidden_dim))
-        return hidden, cell
 
 
 def train(model, iterator, optimizer, criterion, clip):
@@ -462,9 +461,7 @@ def train(model, iterator, optimizer, criterion, clip):
             output = model(src, trg)
         else:
             trg = batch.source
-            hidden, cell = model.init_hidden_cell(trg[0].shape[1])
-            hidden, cell = hidden.to(device), cell.to(device)
-            output = model(trg, hidden, cell)
+            output = model(trg)
 
         # first output are 00s
         # the last iteration is not done, therefore we do not need to throw away the last output
@@ -519,9 +516,7 @@ def evaluate(model, iterator, criterion):
                 output = model(src, trg)
             else:
                 trg = batch.source
-                hidden, cell = model.init_hidden_cell(trg[0].shape[1])
-                hidden, cell = hidden.to(device), cell.to(device)
-                output = model(trg, hidden, cell)
+                output = model(trg)
 
             # first output are 00s
             # the last iteration is not done, therefore we do not need to throw away the last output
@@ -553,7 +548,7 @@ def epoch_time(start_time, end_time):
 
 def fit_model(model, train_iter, valid_iter, n_epochs, clip, model_path):
     model.apply(init_weights)
-    optimizer = optim.Adam(model.parameters())
+    optimizer = optim.Adam(model.parameters(), lr=0.0001)
     pad_idx = TEXT.vocab.stoi[TEXT.pad_token]
     criterion = nn.CrossEntropyLoss(ignore_index=pad_idx)
     best_validation_loss = float('inf')
@@ -569,12 +564,12 @@ def fit_model(model, train_iter, valid_iter, n_epochs, clip, model_path):
 
         model.tb.add_scalar('train_loss', train_loss, epoch)
         model.tb.add_scalar('valid_loss', valid_loss, epoch)
-        if model.__class__.__name__ == "Seq2Seq":
-            for name, param in model.named_parameters():
-                if param.grad is not None and not param.grad.data.is_sparse:
-                    model.tb.add_histogram(f"gradients_wrt_hidden_{name}/",
-                                           param.grad.data.norm(p=2, dim=0),
-                                           global_step=epoch)
+
+        for name, param in model.named_parameters():
+            if param.grad is not None and not param.grad.data.is_sparse:
+                model.tb.add_histogram(f"gradients_wrt_hidden_{name}/",
+                                       param.grad.data.norm(p=2, dim=0),
+                                       global_step=epoch)
         if valid_loss < best_validation_loss:
             best_validation_loss = valid_loss
             torch.save(model.state_dict(), model_path)
@@ -597,6 +592,9 @@ def test_model(example, vocab, model, config):
     trg_tensor = torch.LongTensor([trg_indexes[-1]]).to(device)
     if config["decoding_type"] == "beam":
         trg_tensor = beam_decode(model.decoder, vocab, trg_tensor, (hidden, cell), enc_output, config["with_attention"])
+    elif config["decoding_type"] == "weighted_beam":
+        trg_tensor = beam_decode_mixed([model.decoder], [0.4, 0.6], vocab, 3, 10, 2, trg_tensor, (hidden, cell),
+                                       enc_output)
     else:
         trg_tensor = greedy_decode(model.decoder, config["with_attention"], vocab, trg_tensor, hidden, cell, enc_output,
                                    100)
@@ -607,6 +605,11 @@ def run_seq2seq(config):
     if config["prepare_data"] or config["data_BART"]:
         prepare_data(config)
         exit()
+
+    if config["prepare_dict"]:
+        prepare_dict(config)
+        exit()
+
     # Specify Fields in dataset
     data_fields = [('source', TEXT), ('target', TEXT)]
     fields = dict(data_fields)
@@ -645,7 +648,7 @@ def run_seq2seq(config):
         model = Seq2Seq(config, vocab)
         fit_model(model, train_iter, valid_iter, config["n_epochs"], config["clip"], MODEL_PREPROCESS_SAVE_PATH)
 
-    if config["process"] != 'train_decoder':
+    if config["process"] != 'train_lm':
         # Create a set of iterators
         train_iter = BucketIterator(trn,
                                     shuffle=True, sort=False,
@@ -667,9 +670,11 @@ def run_seq2seq(config):
 
     if config["process"] == 'test':
         model = Seq2Seq(config, vocab)
+        jokes_dict = load_json(DATA_PATH + 'jokes_dict.json')
         model.load_state_dict(torch.load(MODEL_SAVE_PATH, map_location=torch.device(device)))
         test_data = load_csv('datasets/test.csv')
         data_to_save = []
+
         for i in range(0, len(test_data), 2):
             answer = test_model(test_data[i], vocab, model, config)
             answer_str = ""
@@ -682,15 +687,16 @@ def run_seq2seq(config):
                 print("TARGET: ", answer_str)
         file_path = "./tests/" + time.strftime('%d-%m-%Y_%H:%M:%S') + ".csv"
         save_to_csv(file_path, data_to_save)
+
     elif config["process"] == 'train':
         if config["with_preprocess"]:
             model.load_state_dict(torch.load(MODEL_PREPROCESS_SAVE_PATH, map_location=torch.device(device)))
         else:
             model = Seq2Seq(config, vocab)
         fit_model(model, train_iter, valid_iter, config["n_epochs"], config["clip"], MODEL_SAVE_PATH)
-    elif config["process"] == 'train_decoder':
-        print("train decoder")
-        model = Decoding(config, vocab).to(device)
+    elif config["process"] == 'train_lm':
+        print("Train Language model")
+        model = LM(config, vocab).to(device)
         data_fields = [('source', TEXT)]
         if config["style"] == 'funny':
             train_filename = 'jokes_train.csv'

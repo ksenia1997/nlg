@@ -5,6 +5,7 @@ import string
 
 import en_core_web_sm
 import spacy
+from nltk.corpus import stopwords
 from spacy.tokenizer import Tokenizer
 
 from params import *
@@ -200,6 +201,7 @@ def prepare_joke_dataset(nlp, reddit_jokes, stupidstuff, wocka):
     counter = 0
     all_data = [data_reddit, data_stupidstuff, data_wocka]
     for i in range(len(all_data)):
+        # i in [0:2]
         for joke in all_data[i]:
             counter += 1
             if i == 0:
@@ -216,6 +218,30 @@ def prepare_joke_dataset(nlp, reddit_jokes, stupidstuff, wocka):
             else:
                 jokes_train.append(joint_joke)
     return jokes_train, jokes_valid, jokes_test
+
+
+def prepare_short_jokes(nlp, jokes_file):
+    words_dict = dict()
+    jokes = load_csv(jokes_file)
+    stop_words = set(stopwords.words('english'))
+    filtered_jokes = []
+    for i in range(len(jokes)):
+        if i % 2 == 0:
+            continue
+        joke = JOIN_TOKEN.join(tokenize(jokes[i], nlp)[1])
+        # deleting stop words
+        filtered_joke = [j for j in joke.split() if not j.lower() in stop_words]
+        for word in filtered_joke:
+            word = word.lower()
+            if word in words_dict:
+                words_dict[word] += 1
+            else:
+                words_dict[word] = 1
+        filtered_jokes.append(JOIN_TOKEN.join(filtered_joke))
+    total_words = len(words_dict)
+    for w, c in words_dict.items():
+        words_dict[w] = c / total_words
+    return words_dict
 
 
 def tokenize(text: string, t):
@@ -248,6 +274,13 @@ def create_custom_tokenizer(nlp):
                      prefix_search=all_prefixes_re.search,
                      infix_finditer=infix_re.finditer, suffix_search=suffix_re.search,
                      token_match=None)
+
+
+def prepare_dict(config):
+    nlp = en_core_web_sm.load()
+    nlp.tokenizer = create_custom_tokenizer(nlp)
+    jokes_dict = prepare_short_jokes(nlp, DATA_PATH + 'shortjokes.csv')
+    create_json(DATA_PATH + "jokes_dict.json", jokes_dict)
 
 
 def prepare_data(config):
