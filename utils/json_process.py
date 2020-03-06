@@ -2,18 +2,44 @@ import json
 
 
 def create_json(filename, data):
+    """
+
+    Args:
+        filename: save file direction
+        data: data for saving to the file
+
+    Returns: None
+
+    """
     with open(filename, 'w') as f:
         json.dump(data, f)
     f.close()
 
 
 def load_json(filename):
+    """
+
+    Args:
+        filename: load file direction
+
+    Returns: loaded data
+
+    """
+
     with open(filename, 'r') as f:
         return json.load(f)
 
 
 def process_data_to_json(filename, data):
-    # data contains line by line source, target.
+    """
+
+    Args:
+        filename: save file direction
+        data: data for saving to the file, data contains line by line source, target.
+
+    Returns: None
+
+    """
     json_data = []
     length_data = len(data)
     if len(data) % 2 != 0:
@@ -25,6 +51,15 @@ def process_data_to_json(filename, data):
 
 
 def process_data_for_BART(filename, data):
+    """
+
+    Args:
+        filename: save file direction, data saved to the filename with format .source, .target
+        data: data for saving to the file, data contains line by line source, target.
+
+    Returns: None
+
+    """
     print(len(data))
     with open(filename + ".source", 'w') as source, open(filename + ".target", 'w') as target:
         for i in range(0, len(data), 2):

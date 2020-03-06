@@ -1,4 +1,4 @@
-from seq2seq import run_seq2seq
+from processes import run_model
 
 config = {"train_batch_size": 32,
           "embedding_dim": 300,
@@ -17,13 +17,13 @@ config = {"train_batch_size": 32,
           # In case of truncating PERSONA data. 0 if it is not needed to be truncated, N if you need to reduce dialogue.
           "context_pair_count": 0,
           "data_BART": False,  # data for BART model should be saved in a special format
+          "prepare_data": False,
+          "prepare_dict": False,
           "train_preprocess": False,  # to train preprocess, prepare TWITTER data
           "with_preprocess": False,
           "process": 'test',  # train|test|train_lm
-          "control_attributes": True,  # while testing generate outputs depending on attributes
-          "style": "funny",  # process must be "train_decoder"
-          "prepare_data": False,
-          "prepare_dict": False,
+          "is_stylized_generation": True,  # while testing generate text with different styles
+          "style": "funny",
           "optimize_embeddings": False,
           "transformer_d_model": 512,
           "transformer_heads": 8,
@@ -31,4 +31,4 @@ config = {"train_batch_size": 32,
           "transformer_dropout": 0.1}
 
 if __name__ == "__main__":
-    run_seq2seq(config)
+    run_model(config)

@@ -5,6 +5,19 @@ import matplotlib.pyplot as plt
 
 
 def plot_histogram(title, xlabel, ylabel, data, bins_number, filename):
+    """
+
+    Args:
+        title: title of the histogram
+        xlabel: title what is written on axis x
+        ylabel: title what is written on axis y
+        data: data for plotting
+        bins_number: number of intervals
+        filename: save file direction
+
+    Returns: None
+
+    """
     plt.hist(data, bins=bins_number, color='blue')
     plt.xlabel(xlabel)
     plt.ylabel(ylabel)
@@ -14,6 +27,14 @@ def plot_histogram(title, xlabel, ylabel, data, bins_number, filename):
 
 
 def load_histogram_data(filename):
+    """
+
+    Args:
+        filename: load file direction
+
+    Returns: loaded data from csv
+
+    """
     columns = defaultdict(list)
     with open(filename) as f:
         reader = csv.DictReader(f)

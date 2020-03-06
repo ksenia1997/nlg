@@ -279,8 +279,8 @@ def create_custom_tokenizer(nlp):
 def prepare_dict(config):
     nlp = en_core_web_sm.load()
     nlp.tokenizer = create_custom_tokenizer(nlp)
-    jokes_dict = prepare_short_jokes(nlp, DATA_PATH + 'shortjokes.csv')
-    create_json(DATA_PATH + "jokes_dict.json", jokes_dict)
+    jokes_dict = prepare_short_jokes(nlp, DATASETS_PATH + 'shortjokes.csv')
+    create_json(DATASETS_PATH + "jokes_dict.json", jokes_dict)
 
 
 def prepare_data(config):
@@ -294,7 +294,7 @@ def prepare_data(config):
         filename_train = SAVE_DATA_PATH + 'persona_train.csv'
         filename_valid = SAVE_DATA_PATH + 'persona_valid.csv'
         filename_test = SAVE_DATA_PATH + 'persona_test.csv'
-        train_data, valid_data, test_data = prepare_Persona_chat(nlp, DATA_PATH + 'persona_chat.txt',
+        train_data, valid_data, test_data = prepare_Persona_chat(nlp, DATASETS_PATH + 'persona_chat.txt',
                                                                  config["context_pair_count"],
                                                                  config["with_description"])
 
@@ -302,21 +302,21 @@ def prepare_data(config):
         filename_train = SAVE_DATA_PATH + 'twitter_train.csv'
         filename_valid = SAVE_DATA_PATH + 'twitter_valid.csv'
         filename_test = SAVE_DATA_PATH + 'twitter_test.csv'
-        train_data, valid_data, test_data = prepare_Twitter_data(nlp, DATA_PATH + 'twitter_chat.txt')
+        train_data, valid_data, test_data = prepare_Twitter_data(nlp, DATASETS_PATH + 'twitter_chat.txt')
 
     elif config["data_type"] == "PERSONA_BOTH":
         filename_train = SAVE_DATA_PATH + 'train.csv'
         filename_valid = SAVE_DATA_PATH + 'valid.csv'
         filename_test = SAVE_DATA_PATH + 'test.csv'
-        train_data, valid_data, test_data = prepare_both_Persona_chat(nlp, DATA_PATH + 'persona_chat_both.txt')
+        train_data, valid_data, test_data = prepare_both_Persona_chat(nlp, DATASETS_PATH + 'persona_chat_both.txt')
 
     elif config["data_type"] == "JOKE":
         filename_train = SAVE_DATA_PATH + 'jokes_train.csv'
         filename_valid = SAVE_DATA_PATH + 'jokes_valid.csv'
         filename_test = SAVE_DATA_PATH + 'jokes_test.csv'
-        train_data, valid_data, test_data = prepare_joke_dataset(nlp, DATA_PATH + 'reddit_jokes.json',
-                                                                 DATA_PATH + 'stupidstuff.json',
-                                                                 DATA_PATH + 'wocka.json')
+        train_data, valid_data, test_data = prepare_joke_dataset(nlp, DATASETS_PATH + 'reddit_jokes.json',
+                                                                 DATASETS_PATH + 'stupidstuff.json',
+                                                                 DATASETS_PATH + 'wocka.json')
 
     print("train data: ", len(train_data) / 2)
     print("valid data: ", len(valid_data) / 2)
