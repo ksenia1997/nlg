@@ -284,13 +284,13 @@ def prepare_dict(config):
 
 
 def prepare_data(config):
-    print("Prepare data")
     nlp = en_core_web_sm.load()
     nlp.tokenizer = create_custom_tokenizer(nlp)
     if not os.path.exists(SAVE_DATA_PATH[:-1]):
         os.makedirs(SAVE_DATA_PATH[:-1])
 
     if config["data_type"] == "PERSONA":
+        print("[Preparing Persona data]")
         filename_train = SAVE_DATA_PATH + 'persona_train.csv'
         filename_valid = SAVE_DATA_PATH + 'persona_valid.csv'
         filename_test = SAVE_DATA_PATH + 'persona_test.csv'
@@ -299,18 +299,21 @@ def prepare_data(config):
                                                                  config["with_description"])
 
     elif config["data_type"] == "TWITTER":
+        print("[Preparing Twitter data]")
         filename_train = SAVE_DATA_PATH + 'twitter_train.csv'
         filename_valid = SAVE_DATA_PATH + 'twitter_valid.csv'
         filename_test = SAVE_DATA_PATH + 'twitter_test.csv'
         train_data, valid_data, test_data = prepare_Twitter_data(nlp, DATASETS_PATH + 'twitter_chat.txt')
 
     elif config["data_type"] == "PERSONA_BOTH":
+        print("[Preparing Persona data with both persona description]")
         filename_train = SAVE_DATA_PATH + 'train.csv'
         filename_valid = SAVE_DATA_PATH + 'valid.csv'
         filename_test = SAVE_DATA_PATH + 'test.csv'
         train_data, valid_data, test_data = prepare_both_Persona_chat(nlp, DATASETS_PATH + 'persona_chat_both.txt')
 
     elif config["data_type"] == "JOKE":
+        print("[Preparing Joke data]")
         filename_train = SAVE_DATA_PATH + 'jokes_train.csv'
         filename_valid = SAVE_DATA_PATH + 'jokes_valid.csv'
         filename_test = SAVE_DATA_PATH + 'jokes_test.csv'
@@ -323,6 +326,7 @@ def prepare_data(config):
     print("test data: ", len(test_data) / 2)
 
     if config["data_BART"]:
+        print("[Preparing BART data]")
         process_data_for_BART(SAVE_DATA_PATH + "train", train_data)
         process_data_for_BART(SAVE_DATA_PATH + "val", valid_data)
         process_data_for_BART(SAVE_DATA_PATH + "test", test_data)

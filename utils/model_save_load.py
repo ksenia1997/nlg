@@ -26,7 +26,7 @@ def save_model_epoch(model, save_dir, model_name, epoch):
     output.close()
 
 
-def save_best_model(model, save_dir, best_model_name):
+def save_best_model(model, save_path):
     """
 
     Args:
@@ -37,11 +37,6 @@ def save_best_model(model, save_dir, best_model_name):
     Returns: None
 
     """
-    if not os.path.isdir(save_dir):
-        os.makedirs(save_dir)
-
-    model_name = "{}.pt".format(best_model_name)
-    save_path = os.path.join(save_dir, model_name)
     print("save best model to {}".format(save_path))
     if os.path.exists(save_path):
         os.remove(save_path)

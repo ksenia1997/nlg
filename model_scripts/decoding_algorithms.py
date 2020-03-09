@@ -1,6 +1,7 @@
 import operator
 from queue import PriorityQueue
 
+import numpy as np
 import torch
 
 from params import JOIN_TOKEN
@@ -22,7 +23,7 @@ def greedy_decode(vocab, decoder, with_attention, trg_indexes, hidden, cell, enc
         trg_indexes = torch.cat((trg_indexes, torch.LongTensor([pred_token]).to(device)), 0)
         if pred_token == eos_token:
             break
-    return JOIN_TOKEN.joint([vocab.itos[i] for i in trg])
+    return JOIN_TOKEN.join([vocab.itos[i] for i in trg])
 
 
 class BeamSearchNode(object):
@@ -41,7 +42,7 @@ class BeamSearchNode(object):
         self.length = length
 
     def eval(self, alpha=1.0):
-        reward = 0
+        reward = np.random.uniform(0.1, 10 ** (-20))
         # Add here a function for shaping a reward
         return self.logp / float(self.length - 1 + 1e-6) + alpha * reward
 
@@ -137,7 +138,8 @@ def beam_decode_mixed(vocab, beam_width, max_len, max_sentence_count, models, wi
     return sentences
 
 
-def beam_decode(vocab, beam_width, max_len, topk,  decoder, with_attention, target_tensor, decoder_hiddens, encoder_output, sos_token, eos_token, device):
+def beam_decode(vocab, beam_width, max_len, topk, decoder, with_attention, target_tensor, decoder_hiddens,
+                encoder_output, sos_token, eos_token, device):
     '''
     :param target_tensor: target indexes tensor of shape [B, T] where B is the batch size and T is the maximum length of the output sentence
     :param decoder_hidden: input tensor of shape [1, B, H] for start of the decoding
@@ -210,15 +212,13 @@ def beam_decode(vocab, beam_width, max_len, topk,  decoder, with_attention, targ
             endnodes = [nodes.get() for _ in range(topk)]
 
         for score, n in sorted(endnodes, key=operator.itemgetter(0)):
-            utterance = []
-            utterance.append(n.word_ids)
+            utterance = [n.word_ids]
             # back trace
-            while n.prev_node != None:
+            while n.prev_node is not None:
                 n = n.prev_node
                 utterance.append(n.word_ids)
             utterance = utterance[::-1]
             sentence = [vocab.itos[i] for i in utterance]
             sentences += ' '.join(sentence) + " <eos>\n"
             decoded_batch.append(sentence)
-
     return sentences

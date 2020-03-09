@@ -15,6 +15,7 @@ from model_scripts.decoding_algorithms import greedy_decode, beam_decode, beam_d
 from model_scripts.lm import LM
 from model_scripts.seq2seq import Seq2Seq
 from preprocessing import *
+from utils.model_save_load import save_best_model
 
 TEXT = Field(sequential=True, tokenize=lambda s: str.split(s, sep=JOIN_TOKEN), include_lengths=True,
              init_token='<sos>', eos_token='<eos>', pad_token='<pad>', lower=True)
@@ -166,7 +167,8 @@ def fit_model(model, train_iter, valid_iter, n_epochs, clip, model_path):
                                        global_step=epoch)
         if valid_loss < best_validation_loss:
             best_validation_loss = valid_loss
-            torch.save(model.state_dict(), model_path)
+            save_best_model(model, model_path)
+            # torch.save(model.state_dict(), model_path)
         print(f'Epoch: {epoch + 1:02} | Time: {epoch_mins}m {epoch_secs}s')
         print(f'\tTrain Loss: {train_loss:.3f} | Train PPL: {math.exp(train_loss):7.3f}')
         print(f'\t Val. Loss: {valid_loss:.3f} |  Val. PPL: {math.exp(valid_loss):7.3f}')
@@ -182,27 +184,33 @@ def test_model(nlp, example, vocab, config, models, stylized_score_tensors):
     enc_output = enc_output.permute(1, 0, 2)
     trg_indexes = [vocab.stoi[TEXT.init_token]]
     trg_tensor = torch.LongTensor([trg_indexes[-1]]).to(device)
-    sos_token = vocab.stoi[TEXT.sos_token]
+    sos_token = vocab.stoi[TEXT.init_token]
     eos_token = vocab.stoi[TEXT.eos_token]
+
     if config["decoding_type"] == "beam":
-        trg_tensor = beam_decode(vocab, 3, 50, 4, models[0].decoder, config["with_attention"], trg_tensor,
+        trg_tensor = beam_decode(vocab, config['beam_width'], config['max_sentence_len'], config['max_sentences'],
+                                 models[0].decoder, config["with_attention"], trg_tensor,
                                  (hidden, cell), enc_output, sos_token, eos_token, device)
+
     elif config["decoding_type"] == "weighted_beam":
-        trg_tensor = beam_decode_mixed(vocab, 3, 50, 4, models, config["with_attention"], [0.4, 0.6],
-                                       stylized_score_tensors, trg_tensor, (hidden, cell), enc_output, sos_token,
-                                       eos_token, device)
+        trg_tensor = beam_decode_mixed(vocab, config['beam_width'], config['max_sentence_len'], config['max_sentences'],
+                                       models, config["with_attention"], [0.4, 0.6], stylized_score_tensors,
+                                       trg_tensor, (hidden, cell), enc_output, sos_token, eos_token, device)
+
     else:
         trg_tensor = greedy_decode(vocab, models[0].decoder, config["with_attention"], trg_tensor, hidden, cell,
-                                   enc_output, eos_token, device, 100)
+                                   enc_output, eos_token, device, config['max_sentence_len'])
     return trg_tensor
 
 
 def run_model(config):
     if config["prepare_data"] or config["data_BART"]:
+        print("[Preparing data]")
         prepare_data(config)
         exit()
 
     if config["prepare_dict"]:
+        print("[Preparing dictionary]")
         prepare_dict(config)
         exit()
 
@@ -219,11 +227,13 @@ def run_model(config):
         fields=data_fields)
 
     # Build vocabulary
-    print("Building vocabulary")
+    print("[Building vocabulary]")
     fields["source"].build_vocab(trn, vectors=GloVe(name='6B', dim=config["embedding_dim"]))
     vocab = fields["source"].vocab
-    print("len vocab: ", len(vocab))
+    print("[Length of vocabulary: ", len(vocab), "]")
+
     if config["train_preprocess"]:
+        print("[Train preprocess]")
         train, valid = TabularDataset.splits(
             path="./.data",
             train='twitter_train.csv', validation="twitter_valid.csv",
@@ -275,11 +285,14 @@ def run_model(config):
         models.append(model)
 
         if config['is_stylized_generation']:
-            if config['style'] == 'funny':
+
+            if config["with_stylized_lm"]:
                 model_funny = LM(config, vocab, device)
                 model_funny.load_state_dict(torch.load(MODEL_SAVE_FUNNY_PATH, map_location=torch.device(device)))
                 model_funny.eval()
                 models.append(model_funny)
+
+            if config['with_controlling_attributes']:
                 joke_scores_tensor = []
                 jokes_dict = load_json(DATASETS_PATH + 'jokes_dict.json')
                 for i in range(len(vocab)):
@@ -295,29 +308,33 @@ def run_model(config):
         nlp = en_core_web_sm.load()
         nlp.tokenizer = create_custom_tokenizer(nlp)
         file_path = "./tests/" + time.strftime('%d-%m-%Y_%H:%M:%S') + ".csv"
+
         with open(file_path, mode='w') as csv_file:
             fieldnames = ['source', 'target']
             writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
             writer.writeheader()
             for i in range(0, len(test_data), 2):
                 answer = test_model(nlp, test_data[i], vocab, config, models, style_scores_tensors)
+                writer.writerow({'source': test_data[i], 'target': answer})
                 data_to_save.append(test_data[i])
                 data_to_save.append(answer)
-                writer.writerow({'source': test_data[i], 'target': answer})
                 if i % 1000 == 0:
-                    print("SOURCE: ", test_data[i])
-                    print("TARGET: ", answer)
+                    print("[SOURCE: ", test_data[i], "]")
+                    print("[TARGET: ", answer, "]")
         csv_file.close()
-        file_path = "./tests/" + time.strftime('%d-%m-%Y_%H:%M:%S') + ".csv"
-        save_to_csv(file_path, data_to_save)
+        # file_path = "./tests/" + time.strftime('%d-%m-%Y_%H:%M:%S') + ".csv"
+        # save_to_csv(file_path, data_to_save)
 
     elif config["process"] == 'train':
+        print("[Train model]")
         model = Seq2Seq(config, vocab, device)
         if config["with_preprocess"]:
+            print("[Training with preprocess]")
             model.load_state_dict(torch.load(MODEL_PREPROCESS_SAVE_PATH, map_location=torch.device(device)))
         fit_model(model, train_iter, valid_iter, config["n_epochs"], config["clip"], MODEL_SAVE_PATH)
+
     elif config["process"] == 'train_lm':
-        print("Train Language model")
+        print("[Train Language model]")
         model = LM(config, vocab, device)  # .to(device)
         data_fields = [('source', TEXT)]
         if config["style"] == 'funny':
