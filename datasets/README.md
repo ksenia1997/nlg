@@ -26,3 +26,6 @@ https://github.com/taivop/joke-dataset
 
 short jokes
 https://www.kaggle.com/abhinavmoudgil95/short-jokes
+
+
+/mnt/minerva1/nlp/projects/stylized_nlg

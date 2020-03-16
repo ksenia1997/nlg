@@ -25,7 +25,6 @@ def personas_description(line):
 
 
 def prepare_both_Persona_chat(nlp, filename):
-    print("Prepare Persona chat with both descriptions")
     with open(filename) as fp:
         your_persona_description = []
         partner_persona_description = []
@@ -88,7 +87,6 @@ def prepare_both_Persona_chat(nlp, filename):
 
 
 def prepare_Twitter_data(nlp, filename):
-    print("Reading Twitter data")
     train_data = []
     valid_data = []
     test_data = []
@@ -106,7 +104,6 @@ def prepare_Twitter_data(nlp, filename):
 
 
 def prepare_Persona_chat(nlp, filename, context_pair_count, with_description):
-    print("Reading Persona chat")
     train_data = []
     test_data = []
     valid_data = []
@@ -221,10 +218,12 @@ def prepare_joke_dataset(nlp, reddit_jokes, stupidstuff, wocka):
 
 
 def prepare_short_jokes(nlp, jokes_file):
+    print("[Creating jokes dictionary]")
     words_dict = dict()
     jokes = load_csv(jokes_file)
     stop_words = set(stopwords.words('english'))
     filtered_jokes = []
+    total_words = 0
     for i in range(len(jokes)):
         if i % 2 == 0:
             continue
@@ -232,13 +231,13 @@ def prepare_short_jokes(nlp, jokes_file):
         # deleting stop words
         filtered_joke = [j for j in joke.split() if not j.lower() in stop_words]
         for word in filtered_joke:
+            total_words += 1
             word = word.lower()
             if word in words_dict:
                 words_dict[word] += 1
             else:
                 words_dict[word] = 1
         filtered_jokes.append(JOIN_TOKEN.join(filtered_joke))
-    total_words = len(words_dict)
     for w, c in words_dict.items():
         words_dict[w] = c / total_words
     return words_dict
@@ -251,7 +250,7 @@ def tokenize(text: string, t):
 
 
 def create_custom_tokenizer(nlp):
-    print("Creating custom tokenizer")
+    print("[Creating custom tokenizer]")
     custom_prefixes = [r'[0-9]+', r'\~', r'\–', r'\—', r'\$']
     custom_infixes = [r'[!&:,()]', r'\.', r'\-', r'\–', r'\—', r'\$']
     custom_suffixes = [r'\.', r'\–', r'\—', r'\$']

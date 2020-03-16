@@ -24,10 +24,10 @@ config = {"train_batch_size": 32,
           "prepare_dict": False,
           "train_preprocess": False,  # to train preprocess, it's necessary to prepare TWITTER data before
           "with_preprocess": False,  # to train a model with preprocessed model
-          "process": 'train_lm',  # train|test|train_lm
-          "is_stylized_generation": False,  # while testing generate text with different styles
+          "process": 'test',  # train|test|train_lm
+          "is_stylized_generation": True,  # while testing generate text with different styles
           "with_stylized_lm": False,  # if "is_stylized_generation" is True
-          "with_controlling_attributes": False,  # if "is_stylized_generation" is True
+          "with_controlling_attributes": True,  # if "is_stylized_generation" is True
           "style": "funny"}
 
 if __name__ == "__main__":

@@ -103,7 +103,7 @@ def beam_decode_mixed(vocab, beam_width, max_len, max_sentence_count, models, wi
                     stylized_out = []
                     # stylized_score_tensors is a list of tensors of size [len(vocab)]
                     for coef in range(stylized_score_tensors[i].size(0)):
-                        stylized_out.append(stylized_score_tensors[i][coef] * dec_output[0][coef])
+                        stylized_out.append(torch.exp(stylized_score_tensors[i][coef]) + dec_output[0][coef])
                     stylized_out = torch.FloatTensor(stylized_out).to(device).unsqueeze(0)
                     decoder_outputs = torch.cat((decoder_outputs, stylized_out), 0)
             decoder_outputs = decoder_outputs.transpose(0, 1)
@@ -184,7 +184,7 @@ def beam_decode(vocab, beam_width, max_len, topk, decoder, with_attention, targe
                     continue
 
             if with_attention:
-                predicted, decoder_hidden, attn_weights = decoder(decoder_input, decoder_hidden, encoder_output)
+                decoder_output, decoder_hidden, attn_weights = decoder(decoder_input, decoder_hidden, encoder_output)
             else:
                 # decode for one step using decoder
                 decoder_output, decoder_h, cell = decoder(decoder_input, decoder_hidden[0], decoder_hidden[1])

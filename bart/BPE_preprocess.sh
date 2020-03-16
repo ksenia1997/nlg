@@ -9,8 +9,8 @@ do
     python -m examples.roberta.multiprocessing_bpe_encoder \
     --encoder-json encoder.json \
     --vocab-bpe vocab.bpe \
-    --inputs "../datasets/$SPLIT.$LANG" \
-    --outputs "../datasets/$SPLIT.bpe.$LANG" \
+    --inputs "../.data/$SPLIT.$LANG" \
+    --outputs "../.data/$SPLIT.bpe.$LANG" \
     --workers 60 \
     --keep-empty;
   done
