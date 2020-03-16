@@ -1,7 +1,7 @@
 import torch
 from fairseq.models.bart import BARTModel
 
-from bart.model_bart.hub_interface import sample
+from hub_interface import sample
 
 bart = BARTModel.from_pretrained(
     'fairseq/checkpoints/',
@@ -14,7 +14,7 @@ bart.eval()
 bart.half()
 count = 1
 bsz = 32
-with open('../datasets/test.source') as source, open('../datasets/test.hypo', 'w') as fout:
+with open('../.data/test.source') as source, open('test.hypo', 'w') as fout:
     sline = source.readline().strip()
     slines = [sline]
     for sline in source:
