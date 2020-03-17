@@ -237,6 +237,24 @@ def prepare_joke_dataset(nlp, reddit_jokes, stupidstuff, wocka):
     return jokes_train, jokes_valid, jokes_test
 
 
+def split_sentences_both_Persona_chat(filename):
+    with open(filename) as fp:
+        sentences = []
+        for line in fp:
+            is_description, y, p = personas_description(line)
+            if is_description:
+                if y != "":
+                    sentences.append(y)
+                if p != "":
+                    sentences.append(p)
+            sentences_splitted = line.split("\t")
+            if len(sentences_splitted) > 1:
+                utterance1 = re.findall(r"\d+ (.*)", sentences_splitted[0])[0]
+                utterance2 = sentences_splitted[1]
+                sentences.append(utterance1)
+                sentences.append(utterance2)
+    return sentences
+
 def prepare_short_jokes(nlp, jokes_file):
     print("[Creating jokes dictionary]")
     words_dict = dict()

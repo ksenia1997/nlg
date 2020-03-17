@@ -3,5 +3,6 @@
 .ipynb_checkpoints/seq2seq-checkpoint.ipynb
 .vector_cache
 .data/
+mixed_bart/fairseq
 __pycache__
 utils/__pycache__
