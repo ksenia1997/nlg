@@ -1,4 +1,5 @@
 import os
+import pickle
 import random
 import re
 import string
@@ -190,6 +191,25 @@ def prepare_Persona_chat(nlp, filename, context_pair_count, with_description):
     return train_data, valid_data, test_data
 
 
+def split_sentences_both_Persona_chat(filename):
+    with open(filename) as fp:
+        sentences = []
+        for line in fp:
+            is_description, y, p = personas_description(line)
+            if is_description:
+                if y != "":
+                    sentences.append(y)
+                if p != "":
+                    sentences.append(p)
+            sentences_splitted = line.split("\t")
+            if len(sentences_splitted) > 1:
+                utterance1 = re.findall(r"\d+ (.*)", sentences_splitted[0])[0]
+                utterance2 = sentences_splitted[1]
+                sentences.append(utterance1)
+                sentences.append(utterance2)
+    return sentences
+
+
 def prepare_joke_dataset(nlp, reddit_jokes, stupidstuff, wocka):
     data_reddit = load_json(reddit_jokes)
     data_stupidstuff = load_json(stupidstuff)
@@ -288,6 +308,15 @@ def prepare_data(config):
     if not os.path.exists(SAVE_DATA_PATH[:-1]):
         os.makedirs(SAVE_DATA_PATH[:-1])
 
+    if config["tf-idf"]:
+        sentences = split_sentences_both_Persona_chat(DATASETS_PATH + 'persona_chat_both.txt')
+        with open(SAVE_DATA_PATH + 'tf-idf', "wb") as fp:
+            pickle.dump(sentences, fp)
+        # for i in range(len(sentences)):
+        #     json_data.append({'sentence': sentences[i]})
+        # create_json(SAVE_DATA_PATH + 'tf-idf.json', json_data)
+        return
+
     if config["data_type"] == "PERSONA":
         print("[Preparing Persona data]")
         filename_train = SAVE_DATA_PATH + 'persona_train.csv'
@@ -320,9 +349,9 @@ def prepare_data(config):
                                                                  DATASETS_PATH + 'stupidstuff.json',
                                                                  DATASETS_PATH + 'wocka.json')
 
-    print("train data: ", len(train_data) / 2)
-    print("valid data: ", len(valid_data) / 2)
-    print("test data: ", len(test_data) / 2)
+    print("[train data: ", int(len(train_data) / 2), "]")
+    print("[valid data: ", int(len(valid_data) / 2), "]")
+    print("[test data:  ", int(len(test_data) / 2), "]")
 
     if config["data_BART"]:
         print("[Preparing BART data]")

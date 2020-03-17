@@ -214,6 +214,10 @@ def run_model(config):
         prepare_dict(config)
         exit()
 
+    if config["tf-idf"]:
+        prepare_data(config)
+        exit()
+
     # Specify Fields in dataset
     data_fields = [('source', TEXT), ('target', TEXT)]
     fields = dict(data_fields)

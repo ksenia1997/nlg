@@ -3,7 +3,8 @@ WARMUP_UPDATES=500
 LR=3e-05
 MAX_TOKENS=2048
 UPDATE_FREQ=4
-BART_PATH=/path/to/bart/model.pt
+BART_PATH=./bart/bart.large/model.pt # direction to the BART model.pt
+
 
 CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 python3 fairseq/train.py data-bin \
     --restore-file $BART_PATH \
