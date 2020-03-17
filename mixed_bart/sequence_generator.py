@@ -21,6 +21,7 @@ class SequenceGenerator(object):
             normalize_scores=True,
             len_penalty=1.,
             unk_penalty=0.,
+            tf_idf=None,
             retain_dropout=False,
             temperature=1.,
             match_source_len=False,
@@ -67,6 +68,7 @@ class SequenceGenerator(object):
         self.temperature = temperature
         self.match_source_len = match_source_len
         self.no_repeat_ngram_size = no_repeat_ngram_size
+        self.tf_idf = tf_idf.cuda()
         assert temperature > 0, '--temperature must be greater than 0'
 
         self.search = (
@@ -102,6 +104,7 @@ class SequenceGenerator(object):
 
         # model.forward normally channels prev_output_tokens into the decoder
         # separately, but SequenceGenerator directly calls model.encoder
+        #print("SAMPLE NET INPUT: ", sample['net_input'].items())
         encoder_input = {
             k: v for k, v in sample['net_input'].items()
             if k != 'prev_output_tokens'
@@ -127,14 +130,27 @@ class SequenceGenerator(object):
 
         # compute the encoder output for each beam
         encoder_outs = model.forward_encoder(encoder_input)
+        #print("ENC INP: ", encoder_input['src_tokens'].size())
+        #print("ENC OUTS: ", encoder_outs[0].encoder_out.size())
+        #print("ENC PADDING MASK: ", encoder_outs[0].encoder_padding_mask.size())
+        #print("ENC EMBEDDING: ", encoder_outs[0].encoder_embedding.size())
         new_order = torch.arange(bsz).view(-1, 1).repeat(1, beam_size).view(-1)
+        #print("new ORDER SIZE: ", new_order.size())
+        #print("torch.arange(bsz): ", torch.arange(bsz).size())
+        #print("torch.arange(bsz).view(-1, 1): ", torch.arange(bsz).view(-1, 1).size())
+        #print("torch.arange(bsz).view(-1, 1).repeat(1, beam_size): ", torch.arange(bsz).view(-1, 1).repeat(1, beam_size).size())
+        #print("torch.arange(bsz).view(-1, 1).repeat(1, beam_size).view(-1): ", torch.arange(bsz).view(-1, 1).repeat(1, beam_size).view(-1).size())
         new_order = new_order.to(src_tokens.device).long()
         encoder_outs = model.reorder_encoder_out(encoder_outs, new_order)
-
+        #print("REORDERED ENC OUTS: ", encoder_outs[0].encoder_out.size())
+        #print("REORDERED ENC PADDING MASK: ", encoder_outs[0].encoder_padding_mask.size())
+        #print("REORDERED ENC EMBEDDING: ", encoder_outs[0].encoder_embedding.size())
         # initialize buffers
         scores = src_tokens.new(bsz * beam_size, max_len + 1).float().fill_(0)
+        #print("Initialized scores: ", scores.size())
         scores_buf = scores.clone()
         tokens = src_tokens.new(bsz * beam_size, max_len + 2).long().fill_(self.pad)
+        #print("initialized tokens: ", tokens.size())
         tokens_buf = tokens.clone()
         tokens[:, 0] = self.eos if bos_token is None else bos_token
         attn, attn_buf = None, None
@@ -144,12 +160,12 @@ class SequenceGenerator(object):
         # samples. Then the blacklist would mark 2 positions as being ignored,
         # so that we only finalize the remaining 3 samples.
         blacklist = src_tokens.new_zeros(bsz, beam_size).eq(-1)  # forward and backward-compatible False mask
-
+        #print("blacklist: ", blacklist.size())
         # list of completed sentences
         finalized = [[] for i in range(bsz)]
         finished = [False for i in range(bsz)]
         num_remaining_sent = bsz
-
+        #print("bsz: ", bsz)
         # number of candidate hypos per step
         cand_size = 2 * beam_size  # 2 x beam size in case half are EOS
 
@@ -158,10 +174,14 @@ class SequenceGenerator(object):
         cand_offsets = torch.arange(0, cand_size).type_as(tokens)
         # helper function for allocating buffers on the fly
         buffers = {}
+        #print("bbsz_offsets: ", bbsz_offsets.size())
+        #print("cand_offsets: ", cand_offsets.size())
 
         def buffer(name, type_of=tokens):  # noqa
             if name not in buffers:
                 buffers[name] = type_of.new()
+                #print("name: ", name)
+                #print("buffers name: ", buffers[name])
             return buffers[name]
 
         def is_finished(sent, step, unfin_idx):
@@ -170,6 +190,7 @@ class SequenceGenerator(object):
             comparing the worst score among finalized hypotheses to the best
             possible score among unfinalized hypotheses.
             """
+            #print("IS FINISHED sent, step: ", sent, step)
             assert len(finalized[sent]) <= beam_size
             if len(finalized[sent]) == beam_size or step == max_len:
                 return True
@@ -192,20 +213,28 @@ class SequenceGenerator(object):
                     scores for each hypothesis
             """
             assert bbsz_idx.numel() == eos_scores.numel()
-
+            #print("finalize_hypos: step, bbsz_idx, eos_scores: ", step, bbsz_idx.size(), eos_scores.size())
             # clone relevant token and attention tensors
             tokens_clone = tokens.index_select(0, bbsz_idx)
+            #print("tokens clone: ", tokens_clone.size())
             tokens_clone = tokens_clone[:, 1:step + 2]  # skip the first index, which is EOS
+            #print("EOS Skip: ", tokens_clone.size())
             assert not tokens_clone.eq(self.eos).any()
             tokens_clone[:, step] = self.eos
+            #print("tokens clone add EOS: ", tokens_clone.size())
             attn_clone = attn.index_select(0, bbsz_idx)[:, :, 1:step + 2] if attn is not None else None
-
+            #print("Attn is None? : ", attn)
+            #print("attn clone: ", attn_clone.size())
+         
             # compute scores per token position
             pos_scores = scores.index_select(0, bbsz_idx)[:, :step + 1]
+            #print("pos scores: ", pos_scores.size(), pos_scores)
             pos_scores[:, step] = eos_scores
+            #print("cuuted pos scores: ", pos_scores.size())
             # convert from cumulative to per-position scores
             pos_scores[:, 1:] = pos_scores[:, 1:] - pos_scores[:, :-1]
-
+            #print("score converted: ", pos_scores.size())
+          
             # normalize sentence-level scores
             if self.normalize_scores:
                 eos_scores /= (step + 1) ** self.len_penalty
@@ -262,14 +291,22 @@ class SequenceGenerator(object):
             if reorder_state is not None:
                 if batch_idxs is not None:
                     # update beam indices to take into account removed sentences
+                    #print("batch idxs: ", batch_idxs)
+                    #print("numel: ", torch.arange(batch_idxs.numel()).type_as(batch_idxs))
                     corr = batch_idxs - torch.arange(batch_idxs.numel()).type_as(batch_idxs)
+                    #print("corr: ", corr)
+                    #print("reorder_state before: ", reorder_state.size())
                     reorder_state.view(-1, beam_size).add_(corr.unsqueeze(-1) * beam_size)
+                    #print("reorder_state after: ", reorder_state.size())
+                    
                 model.reorder_incremental_state(reorder_state)
                 encoder_outs = model.reorder_encoder_out(encoder_outs, reorder_state)
-
+               
             lprobs, avg_attn_scores = model.forward_decoder(
                 tokens[:, :step + 1], encoder_outs, temperature=self.temperature,
             )
+            print("lprobs")
+            #lprobs = lprobs.add(self.tf_idf)
             lprobs[lprobs != lprobs] = -math.inf
 
             lprobs[:, self.pad] = -math.inf  # never select pad
@@ -495,6 +532,7 @@ class SequenceGenerator(object):
         # sort by score descending
         for sent in range(len(finalized)):
             finalized[sent] = sorted(finalized[sent], key=lambda r: r['score'], reverse=True)
+        
         return finalized
 
 

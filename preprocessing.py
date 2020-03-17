@@ -1,4 +1,5 @@
 import os
+import pickle
 import random
 import re
 import string
@@ -217,6 +218,24 @@ def prepare_joke_dataset(nlp, reddit_jokes, stupidstuff, wocka):
     return jokes_train, jokes_valid, jokes_test
 
 
+def split_sentences_both_Persona_chat(filename):
+    with open(filename) as fp:
+        sentences = []
+        for line in fp:
+            is_description, y, p = personas_description(line)
+            if is_description:
+                if y != "":
+                    sentences.append(y)
+                if p != "":
+                    sentences.append(p)
+            sentences_splitted = line.split("\t")
+            if len(sentences_splitted) > 1:
+                utterance1 = re.findall(r"\d+ (.*)", sentences_splitted[0])[0]
+                utterance2 = sentences_splitted[1]
+                sentences.append(utterance1)
+                sentences.append(utterance2)
+    return sentences
+
 def prepare_short_jokes(nlp, jokes_file):
     print("[Creating jokes dictionary]")
     words_dict = dict()
@@ -287,6 +306,16 @@ def prepare_data(config):
     nlp.tokenizer = create_custom_tokenizer(nlp)
     if not os.path.exists(SAVE_DATA_PATH[:-1]):
         os.makedirs(SAVE_DATA_PATH[:-1])
+
+    if config["tf-idf"]:
+        sentences = split_sentences_both_Persona_chat(DATASETS_PATH + 'persona_chat_both.txt')
+        #json_data = []
+        with open(SAVE_DATA_PATH + 'tf-idf', "wb") as fp:
+            pickle.dump(sentences, fp)
+        #for i in range(len(sentences)):
+        #    json_data.append({'sentence': sentences[i]})
+        #create_json(SAVE_DATA_PATH + 'tf-idf.json', json_data)
+        return
 
     if config["data_type"] == "PERSONA":
         print("[Preparing Persona data]")
