@@ -34,9 +34,10 @@ def create_tf_idf(model):
     matrix_tf_idf = torch.arange(len(model.task.target_dictionary)).type(torch.FloatTensor)
     for k, v in indexes_dict.items():
         matrix_tf_idf[k] = sentences_length / v
-    max_nidf  = torch.max(matrix_tf_idf)
+    matrix_tf_idf = torch.log(matrix_tf_idf)
+    max_nidf = torch.max(matrix_tf_idf)
     min_nidf = torch.min(matrix_tf_idf)
-    matrix_tf_idf = torch.log(matrix_tf_idf) - min_nidf
+    matrix_tf_idf = matrix_tf_idf - min_nidf
     matrix_tf_idf = matrix_tf_idf / (max_nidf - min_nidf)
     return matrix_tf_idf
 
