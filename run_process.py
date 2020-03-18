@@ -20,7 +20,8 @@ config = {"train_batch_size": 32,
           # In case of truncating PERSONA data. 0 if it is not needed to be truncated, N if you need to reduce dialogue.
           "context_pair_count": 0,
           "data_BART": False,  # data for BART model should be saved in a special format
-          "tf-idf": True,
+          "data_GPT2": True,  # data for GPT2 model should be saved in a special format
+          "data_for_idf": True,
           "prepare_data": False,
           "prepare_dict": False,
           "train_preprocess": False,  # to train preprocess, it's necessary to prepare TWITTER data before

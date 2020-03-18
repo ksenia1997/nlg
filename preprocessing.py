@@ -12,6 +12,7 @@ from spacy.tokenizer import Tokenizer
 from params import *
 from utils.csv_process import *
 from utils.json_process import *
+from utils.save_model_data import save_data_for_BART, save_data_for_GPT2
 
 
 def personas_description(line):
@@ -210,6 +211,26 @@ def split_sentences_both_Persona_chat(filename):
     return sentences
 
 
+# Collecting data for creating IDF for BART
+def split_sentences_both_Persona_chat(filename):
+    with open(filename) as fp:
+        sentences = []
+        for line in fp:
+            is_description, y, p = personas_description(line)
+            if is_description:
+                if y != "":
+                    sentences.append(y)
+                if p != "":
+                    sentences.append(p)
+            sentences_splitted = line.split("\t")
+            if len(sentences_splitted) > 1:
+                utterance1 = re.findall(r"\d+ (.*)", sentences_splitted[0])[0]
+                utterance2 = sentences_splitted[1]
+                sentences.append(utterance1)
+                sentences.append(utterance2)
+    return sentences
+
+
 def prepare_joke_dataset(nlp, reddit_jokes, stupidstuff, wocka):
     data_reddit = load_json(reddit_jokes)
     data_stupidstuff = load_json(stupidstuff)
@@ -236,24 +257,6 @@ def prepare_joke_dataset(nlp, reddit_jokes, stupidstuff, wocka):
                 jokes_train.append(joint_joke)
     return jokes_train, jokes_valid, jokes_test
 
-
-def split_sentences_both_Persona_chat(filename):
-    with open(filename) as fp:
-        sentences = []
-        for line in fp:
-            is_description, y, p = personas_description(line)
-            if is_description:
-                if y != "":
-                    sentences.append(y)
-                if p != "":
-                    sentences.append(p)
-            sentences_splitted = line.split("\t")
-            if len(sentences_splitted) > 1:
-                utterance1 = re.findall(r"\d+ (.*)", sentences_splitted[0])[0]
-                utterance2 = sentences_splitted[1]
-                sentences.append(utterance1)
-                sentences.append(utterance2)
-    return sentences
 
 def prepare_short_jokes(nlp, jokes_file):
     print("[Creating jokes dictionary]")
@@ -326,13 +329,10 @@ def prepare_data(config):
     if not os.path.exists(SAVE_DATA_PATH[:-1]):
         os.makedirs(SAVE_DATA_PATH[:-1])
 
-    if config["tf-idf"]:
+    if config["data_for_idf"]:
         sentences = split_sentences_both_Persona_chat(DATASETS_PATH + 'persona_chat_both.txt')
-        with open(SAVE_DATA_PATH + 'tf-idf', "wb") as fp:
+        with open(SAVE_DATA_PATH + 'idf', "wb") as fp:
             pickle.dump(sentences, fp)
-        # for i in range(len(sentences)):
-        #     json_data.append({'sentence': sentences[i]})
-        # create_json(SAVE_DATA_PATH + 'tf-idf.json', json_data)
         return
 
     if config["data_type"] == "PERSONA":
@@ -372,16 +372,23 @@ def prepare_data(config):
     print("[test data:  ", int(len(test_data) / 2), "]")
 
     if config["data_BART"]:
-        print("[Preparing BART data]")
-        process_data_for_BART(SAVE_DATA_PATH + "train", train_data)
-        process_data_for_BART(SAVE_DATA_PATH + "val", valid_data)
-        process_data_for_BART(SAVE_DATA_PATH + "test", test_data)
+        print("[Preparing data for BART]")
+        save_data_for_BART(SAVE_DATA_PATH + "train", train_data)
+        save_data_for_BART(SAVE_DATA_PATH + "val", valid_data)
+        save_data_for_BART(SAVE_DATA_PATH + "test", test_data)
+        return
+
+    if config["data_GPT2"]:
+        print("[Preparing data for GPT2]")
+        save_data_for_GPT2(SAVE_DATA_PATH + "train_gpt2", train_data)
+        save_data_for_GPT2(SAVE_DATA_PATH + "test_gpt2", test_data)
         return
 
     if config["data_type"] in ["TWITTER", "PERSONA_BOTH", "PERSONA"]:
         save_to_csv(filename_train, train_data)
         save_to_csv(filename_valid, valid_data)
         save_to_csv(filename_test, test_data)
+
     elif config["data_type"] in ["JOKE"]:
         save_csv_row(filename_train, train_data)
         save_csv_row(filename_valid, valid_data)

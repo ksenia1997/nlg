@@ -204,7 +204,7 @@ def test_model(nlp, example, vocab, config, models, stylized_score_tensors):
 
 
 def run_model(config):
-    if config["prepare_data"] or config["data_BART"]:
+    if config["prepare_data"] or config["data_BART"] or config["data_GPT2"]:
         print("[Preparing data]")
         prepare_data(config)
         exit()
@@ -214,7 +214,7 @@ def run_model(config):
         prepare_dict(config)
         exit()
 
-    if config["tf-idf"]:
+    if config["data_for_idf"]:
         prepare_data(config)
         exit()
 

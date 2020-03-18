@@ -50,21 +50,4 @@ def process_data_to_json(filename, data):
     create_json(filename, json_data)
 
 
-def process_data_for_BART(filename, data):
-    """
 
-    Args:
-        filename: save file direction, data saved to the filename with format .source, .target
-        data: data for saving to the file, data contains line by line source, target.
-
-    Returns: None
-
-    """
-    print(len(data))
-    with open(filename + ".source", 'w') as source, open(filename + ".target", 'w') as target:
-        for i in range(0, len(data), 2):
-            source.write(data[i] + '\n')
-            target.write(data[i + 1] + '\n')
-
-    source.close()
-    target.close()
