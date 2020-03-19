@@ -2,6 +2,7 @@ import copy
 import logging
 import math
 import numpy as np
+import os
 import pickle
 from typing import List
 import json
@@ -160,10 +161,10 @@ def bart_beam_decode(model, tf_idf, input_tokens, beam_width, max_len, temperatu
         lprobs, avg_attn_scores = ensemble_model.forward_decoder(
             tokens[:, :1], encoder_outs, temperature=temperature,
         )
-        #lprobs = lprobs.add(tf_idf)
+        # lprobs = lprobs.add(tf_idf)
         lprobs[:, pad] = -math.inf  # never select pad
         lprobs[:, unk] -= unk_penalty  # apply unk penalty
-
+        
         enc_gpt2 = gpt2_encoder.get_encoder('117M')
         hparams = gpt2_model.default_hparams()
         with open(os.path.join('gpt/src/models', '117M', 'hparams.json')) as f:
@@ -180,11 +181,13 @@ def bart_beam_decode(model, tf_idf, input_tokens, beam_width, max_len, temperatu
         lm_output = gpt2_model.model(hparams=hparams, X=context, past=None, reuse=tf.AUTO_REUSE)
         print("lm output: ", lm_output)
         logits = lm_output['logits'][:, :, :hparams.n_vocab]
+        print("logits: ", logits, type(logits))
         init = tf.initialize_all_variables()
         with tf.Session() as sess:
             sess.run(init)
             logits = logits.eval()
         print("LOGITS: ", logits, type(logits)) 
+        # logits = np.asarray(logits)
+        #print("logits numpy: ", logits, type(logits))
         logits = torch.tensor(logits).float()
         print("logits torch: ", logits)
-
