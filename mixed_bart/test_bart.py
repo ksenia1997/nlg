@@ -13,7 +13,7 @@ bart.cuda()
 bart.eval()
 bart.half()
 count = 1
-bsz = 32
+bsz = 1
 with open('../.data/test.source') as source, open('test.hypo', 'w') as fout:
     sline = source.readline().strip()
     slines = [sline]
@@ -23,7 +23,7 @@ with open('../.data/test.source') as source, open('test.hypo', 'w') as fout:
         if count % bsz == 0:
             with torch.no_grad():
                 print("before bart decode")
-                bart_beam_decode(bart, tf_idf_indexes, slines, 3, 100, 1, 0.001)
+                bart_beam_decode(bart, tf_idf_indexes, slines, 3, 5, 2, 1, 0.001)
                 print("after bart decode")
                 hypotheses_batch = sample(bart, tf_idf_indexes, slines, beam=3, lenpen=2.0, max_len_b=100, min_len=5,
                                           no_repeat_ngram_size=2)

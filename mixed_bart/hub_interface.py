@@ -52,11 +52,10 @@ def create_tf_idf(model):
 def get_bart_tensor_with_gpt2_idxs():
     with open("bart_arr_gpt2_idxs", "rb") as fp:
         bart_tensor_with_gpt2_idxs = pickle.load(fp)
-    return bart_tensor_with_gpt2_idxs
-
+    return  bart_tensor_with_gpt2_idxs
 
 def convert_gpt_idxs_to_bart(logp, bart_vocab_size):
-    bart_tensor_with_gpt2_idxs = get_bart_tensor_with_gpt2_idxs
+    bart_tensor_with_gpt2_idxs = get_bart_tensor_with_gpt2_idxs()
     converted_logp = []
     for i in range(bart_vocab_size):
         gpt2_idx = None
@@ -220,19 +219,33 @@ def bart_beam_decode(model, tf_idf, input_tokens, beam_width, max_len, max_sente
             lprobs[:, unk] -= unk_penalty  # apply unk penalty
             if n.prev_node is None:
                 # GPT-2 start generation with eos
-                start_token = [enc_gpt2.encoder[gpt2_eos]]
+                start_token = [[enc_gpt2.encoder[gpt2_eos]]]
+                print("START TOKEN: ", start_token)
+                
             else:
-                dec_input = model.decode(decoder_input)
-                print("dec input for GPT2")
-                print("enc_gpt2.encoder: ", enc_gpt2.encoder[gpt2_eos + 'hello how are you?'])
-                start_token = enc_gpt2.encoder[gpt2_eos + dec_input]
-            context = tf.fill([1, 1], start_token)
+                print("GPT2 dec: ", decoder_input.squeeze(0).size())
+                start_token = []
+                bart_gpt2_dict = get_bart_tensor_with_gpt2_idxs()
+                #dec_input = model.decode(decoder_input.squeeze(0))
+                for item in decoder_input.squeeze(0):
+                    gpt2_item = bart_gpt2_dict[item]
+                    if gpt2_item == 50257:
+                        start_token.append(0)
+                    else:
+                        start_token.append(gpt2_item)
+                start_token = [start_token]
+                print("dec input for GPT2", start_token)
+                #print("enc EOS: ", enc_gpt2.encoder[gpt2_eos])
+                #print("enc_gpt2.encoder: ", enc_gpt2.encoder[gpt2_eos + ' hello how are you?'])
+                #start_token = enc_gpt2.encoder[gpt2_eos + dec_input]
+                #start_token = torch.tensor(dec_input, device=device)
+                #print("START: ", start_token, start_token.size())
+            context = tf.convert_to_tensor(start_token)
+            print("context: ", context)
             lm_output = gpt2_model.model(hparams=hparams, X=context, past=None, reuse=tf.AUTO_REUSE)
             logits = lm_output['logits'][:, :, :hparams.n_vocab]
-
             # converting tf.Tensor to torch.tensor
-            # tf.global_variables_initializer
-            init = tf.initialize_all_variables()
+            init = tf.global_variables_initializer()
             with tf.Session() as sess:
                 sess.run(init)
                 logits = logits.eval()
@@ -249,9 +262,10 @@ def bart_beam_decode(model, tf_idf, input_tokens, beam_width, max_len, max_sente
 
             for new_k in range(beam_width):
                 decoded_t = indexes[0][new_k].unsqueeze(0).unsqueeze(0)
-                print("decoded t: ", decoded_t)
+                print("decoded t: ", decoded_t, decoded_t.size())
+                print("decoded input: ", decoder_input, decoder_input.size())
                 decoded_t = torch.cat((decoder_input, decoded_t), 1)
-                print("decoded t concatenated: ", decoded_t)
+                print("decoded t concatenated: ", decoded_t, decoded_t.size())
                 log_p = log_prob[0][new_k].item()
                 print("log p: ", log_p)
                 node = BeamSearchNode(n, decoded_t, n.logp + log_p, n.length + 1)
@@ -274,7 +288,10 @@ def bart_beam_decode(model, tf_idf, input_tokens, beam_width, max_len, max_sente
             while n.prev_node is not None:
                 n = n.prev_node
                 utterance.append(n.word_ids)
-                sentence = model.decode(n.word_ids)
+                print("n word_ids: ", n.word_ids.size())
+                print("squeeze: ", n.word_ids.squeeze(0).size())
+                sentence = model.decode(n.word_ids.squeeze(0))
                 print("decoded sentence: ", sentence)
                 decoded_batch.append(sentence)
     return decoded_batch
+
