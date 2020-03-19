@@ -177,7 +177,7 @@ def beam_decode(vocab, beam_width, max_len, topk, decoder, with_attention, targe
 
             if (n.word_ids.item() == eos_token and n.prev_node != None) or n.length >= max_len:
                 endnodes.append((score, n))
-                # if we reached maximum # of sentences required
+                # if we reached maximum of sentences required
                 if len(endnodes) >= number_required:
                     break
                 else:
@@ -221,4 +221,5 @@ def beam_decode(vocab, beam_width, max_len, topk, decoder, with_attention, targe
             sentence = [vocab.itos[i] for i in utterance]
             sentences += ' '.join(sentence) + " <eos>\n"
             decoded_batch.append(sentence)
+
     return sentences

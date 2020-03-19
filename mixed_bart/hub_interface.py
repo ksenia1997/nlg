@@ -1,20 +1,23 @@
 import copy
+import json
 import logging
 import math
-import numpy as np
+import operator
 import os
 import pickle
+from queue import PriorityQueue
 from typing import List
-import json
 
+import gpt.src.encoder as gpt2_encoder
+import gpt.src.model as gpt2_model
+import numpy as np
+import tensorflow as tf
 import torch
 from fairseq import search
 from sequence_generator import EnsembleModel
 from sequence_generator import SequenceGenerator
-import gpt.src.encoder as gpt2_encoder
-import gpt.src.model as gpt2_model
-import tensorflow as tf
 
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 logger = logging.getLogger(__name__)
 
 
@@ -39,11 +42,31 @@ def create_tf_idf(model):
     matrix_tf_idf = torch.arange(len(model.task.target_dictionary)).type(torch.FloatTensor)
     for k, v in indexes_dict.items():
         matrix_tf_idf[k] = sentences_length / v
-    max_nidf  = torch.max(matrix_tf_idf)
+    max_nidf = torch.max(matrix_tf_idf)
     min_nidf = torch.min(matrix_tf_idf)
     matrix_tf_idf = torch.log(matrix_tf_idf) - min_nidf
     matrix_tf_idf = matrix_tf_idf / (max_nidf - min_nidf)
     return matrix_tf_idf
+
+
+def get_bart_tensor_with_gpt2_idxs():
+    with open("bart_arr_gpt2_idxs", "rb") as fp:
+        bart_tensor_with_gpt2_idxs = pickle.load(fp)
+    return bart_tensor_with_gpt2_idxs
+
+
+def convert_gpt_idxs_to_bart(logp, bart_vocab_size):
+    bart_tensor_with_gpt2_idxs = get_bart_tensor_with_gpt2_idxs
+    converted_logp = []
+    for i in range(bart_vocab_size):
+        gpt2_idx = None
+        if i in bart_tensor_with_gpt2_idxs:
+            gpt2_idx = bart_tensor_with_gpt2_idxs[i]
+        if gpt2_idx == 50257 or gpt2_idx is None:
+            converted_logp.append(0)
+        else:
+            converted_logp.append(logp[0][gpt2_idx])
+    return torch.tensor(converted_logp, device=device).unsqueeze(0)
 
 
 def sample_beam(model, tf_idf, sentences: List[str], beam: int = 1, max_len: int = 100, temperature=1.,
@@ -121,73 +144,137 @@ def generate(model, tf_idf_matrix, tokens: List[torch.LongTensor], beam: int = 5
     return hypos
 
 
-def bart_beam_decode(model, tf_idf, input_tokens, beam_width, max_len, temperature, unk_penalty):
-    decoded_batch = []
-    max_len = max(max_len, 2)
-    beam_width = max(beam_width, 2)
-    sentences = ""
-    input_tokens = [model.encode(sentence) for sentence in input_tokens]
-    sample = model._build_sample(input_tokens)
+class BeamSearchNode(object):
+    def __init__(self, previous_node, word_ids, log_prob, length):
+        '''
+        :param previousNode:
+        :param wordId:
+        :param logProb:
+        :param length:
+        '''
+        self.prev_node = previous_node
+        self.word_ids = word_ids
+        self.logp = log_prob
+        self.length = length
 
+    def eval(self, alpha=1.0):
+        reward = np.random.uniform(0.1, 10 ** (-20))
+        # Add here a function for shaping a reward
+        return self.logp / float(self.length - 1 + 1e-6) + alpha * reward
+
+
+def bart_beam_decode(model, tf_idf, input_tokens, beam_width, max_len, max_sentence_count, temperature, unk_penalty):
+    assert max_len > 2
+    assert max_sentence_count > 1
+    assert beam_width > 2
+
+    decoded_batch = []
+    sentences = ""
+
+    # BART pad, unk and eos
     pad = model.task.target_dictionary.pad()
     unk = model.task.target_dictionary.unk()
     eos = model.task.target_dictionary.eos()
+    ensemble_model = EnsembleModel([model.model])
 
-    encoder_input = {
-        k: v for k, v in sample['net_input'].items()
-        if k != 'prev_output_tokens'
-    }
-
-    src_tokens = encoder_input['src_tokens']
-    src_lengths = (src_tokens.ne(eos) & src_tokens.ne(pad)).long().sum(dim=1)
-    input_size = src_tokens.size()
-    print("Input size: ", input_size)
-    bsz = input_size[0]
-    src_len = input_size[1]
-    with torch.no_grad():
-        ensemble_model = EnsembleModel([model.model])
+    # GPT-2
+    enc_gpt2 = gpt2_encoder.get_encoder('117M')
+    hparams = gpt2_model.default_hparams()
+    gpt2_eos = '<|endoftext|>'
+    with open(os.path.join('gpt/src/models', '117M', 'hparams.json')) as f:
+        hparams.override_from_dict(json.load(f))
+    gpt2_len = hparams.n_ctx
+    print("Input tokens", input_tokens)
+    for i in range(len(input_tokens)):
+        endnodes = []
+        nodes = PriorityQueue()
+        qsize = 1
+        print("Input tokens i: ", input_tokens[i])
+        # BART
+        enc_tokens = [model.encode(input_tokens[i])]
+        sample = model._build_sample(enc_tokens)
+        encoder_input = {
+            k: v for k, v in sample['net_input'].items()
+            if k != 'prev_output_tokens'
+        }
+        src_tokens = encoder_input['src_tokens']
         encoder_outs = ensemble_model.forward_encoder(encoder_input)
-        print("encoder outs: ", encoder_outs)
-        new_order = torch.arange(bsz).view(-1, 1).repeat(1, beam_width).view(-1)
-        new_order = new_order.to(src_tokens.device).long()
-        encoder_outs = ensemble_model.reorder_encoder_out(encoder_outs, new_order)
-        print("encoder outs reordered: ", encoder_outs)
+        target_tokens = src_tokens.new(1, 1).long().fill_(eos)
+        node = BeamSearchNode(None, target_tokens, 0, 1)
+        nodes.put((-node.eval(), node))
 
-        tokens = src_tokens.new(bsz * beam_width, max_len + 2).long().fill_(pad)
-        print("tokens: ", tokens.size(), tokens)
-        tokens[:, 0] = eos
-        print("tokens with eos: ", tokens)
+        while True:
+            score, n = nodes.get()
+            decoder_input = n.word_ids
+            if (n.word_ids[0][-1].item() == eos and n.prev_node != None) or n.length >= max_len:
+                endnodes.append((score, n))
+                if len(endnodes) >= max_sentence_count:
+                    break
+                else:
+                    continue
 
-        lprobs, avg_attn_scores = ensemble_model.forward_decoder(
-            tokens[:, :1], encoder_outs, temperature=temperature,
-        )
-        # lprobs = lprobs.add(tf_idf)
-        lprobs[:, pad] = -math.inf  # never select pad
-        lprobs[:, unk] -= unk_penalty  # apply unk penalty
-        
-        enc_gpt2 = gpt2_encoder.get_encoder('117M')
-        hparams = gpt2_model.default_hparams()
-        with open(os.path.join('gpt/src/models', '117M', 'hparams.json')) as f:
-             hparams.override_from_dict(json.load(f))   
-        print("enc gpt2: ", enc_gpt2)
-        print("hparams: ", hparams)
-        length = hparams.n_ctx
-        print("length: ", length)
-        start_token = enc_gpt2.encoder['<|endoftext|>']
-        print("start token: ", start_token)
-        context = tf.fill([1, 1], start_token)
-        print("context: ", context)
-        print("n vocab: ", hparams.n_vocab)
-        lm_output = gpt2_model.model(hparams=hparams, X=context, past=None, reuse=tf.AUTO_REUSE)
-        print("lm output: ", lm_output)
-        logits = lm_output['logits'][:, :, :hparams.n_vocab]
-        print("logits: ", logits, type(logits))
-        init = tf.initialize_all_variables()
-        with tf.Session() as sess:
-            sess.run(init)
-            logits = logits.eval()
-        print("LOGITS: ", logits, type(logits)) 
-        # logits = np.asarray(logits)
-        #print("logits numpy: ", logits, type(logits))
-        logits = torch.tensor(logits).float()
-        print("logits torch: ", logits)
+            lprobs, avg_attn_scores = ensemble_model.forward_decoder(
+                decoder_input, encoder_outs, temperature=temperature)
+            # lprobs = lprobs.add(tf_idf)
+            lprobs[:, pad] = -math.inf  # never select pad
+            lprobs[:, unk] -= unk_penalty  # apply unk penalty
+            if n.prev_node is None:
+                # GPT-2 start generation with eos
+                start_token = [enc_gpt2.encoder[gpt2_eos]]
+            else:
+                dec_input = model.decode(decoder_input)
+                print("dec input for GPT2")
+                print("enc_gpt2.encoder: ", enc_gpt2.encoder[gpt2_eos + 'hello how are you?'])
+                start_token = enc_gpt2.encoder[gpt2_eos + dec_input]
+            context = tf.fill([1, 1], start_token)
+            lm_output = gpt2_model.model(hparams=hparams, X=context, past=None, reuse=tf.AUTO_REUSE)
+            logits = lm_output['logits'][:, :, :hparams.n_vocab]
+
+            # converting tf.Tensor to torch.tensor
+            # tf.global_variables_initializer
+            init = tf.initialize_all_variables()
+            with tf.Session() as sess:
+                sess.run(init)
+                logits = logits.eval()
+            logits = torch.tensor(logits)
+            logits = torch.squeeze(logits, 0)
+
+            converted_logits = convert_gpt_idxs_to_bart(logits, lprobs.size(1))
+            print("converted logits: ", converted_logits.size())
+            lprobs = lprobs * 0.6
+            add_probs = lprobs.add(converted_logits * 0.4)
+            print("add probs: ", add_probs.size())
+            log_prob, indexes = torch.topk(add_probs, beam_width)
+            nextnodes = []
+
+            for new_k in range(beam_width):
+                decoded_t = indexes[0][new_k].unsqueeze(0).unsqueeze(0)
+                print("decoded t: ", decoded_t)
+                decoded_t = torch.cat((decoder_input, decoded_t), 1)
+                print("decoded t concatenated: ", decoded_t)
+                log_p = log_prob[0][new_k].item()
+                print("log p: ", log_p)
+                node = BeamSearchNode(n, decoded_t, n.logp + log_p, n.length + 1)
+                score = -node.eval()
+                nextnodes.append((score, node))
+
+            for nn_i in range(len(nextnodes)):
+                score, nn = nextnodes[nn_i]
+                nodes.put((score, nn))
+                # increase qsize
+            qsize += len(nextnodes) - 1
+
+        # choose nbest paths, back trace them
+        if len(endnodes) == 0:
+            endnodes = [nodes.get() for _ in range(max_sentence_count)]
+
+        for score, n in sorted(endnodes, key=operator.itemgetter(0)):
+            utterance = [n.word_ids]
+            # back trace
+            while n.prev_node is not None:
+                n = n.prev_node
+                utterance.append(n.word_ids)
+                sentence = model.decode(n.word_ids)
+                print("decoded sentence: ", sentence)
+                decoded_batch.append(sentence)
+    return decoded_batch
