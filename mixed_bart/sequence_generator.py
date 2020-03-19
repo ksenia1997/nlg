@@ -68,7 +68,10 @@ class SequenceGenerator(object):
         self.temperature = temperature
         self.match_source_len = match_source_len
         self.no_repeat_ngram_size = no_repeat_ngram_size
-        self.tf_idf = tf_idf.cuda()
+        if self.tf_idf is not None:
+            self.tf_idf = tf_idf.cuda()
+        else:
+            self.tf_idf = None
         assert temperature > 0, '--temperature must be greater than 0'
 
         self.search = (
@@ -104,7 +107,7 @@ class SequenceGenerator(object):
 
         # model.forward normally channels prev_output_tokens into the decoder
         # separately, but SequenceGenerator directly calls model.encoder
-        #print("SAMPLE NET INPUT: ", sample['net_input'].items())
+        # print("SAMPLE NET INPUT: ", sample['net_input'].items())
         encoder_input = {
             k: v for k, v in sample['net_input'].items()
             if k != 'prev_output_tokens'
@@ -171,7 +174,7 @@ class SequenceGenerator(object):
             comparing the worst score among finalized hypotheses to the best
             possible score among unfinalized hypotheses.
             """
-            #print("IS FINISHED sent, step: ", sent, step)
+            # print("IS FINISHED sent, step: ", sent, step)
             assert len(finalized[sent]) <= beam_size
             if len(finalized[sent]) == beam_size or step == max_len:
                 return True
@@ -201,14 +204,12 @@ class SequenceGenerator(object):
             tokens_clone[:, step] = self.eos
             attn_clone = attn.index_select(0, bbsz_idx)[:, :, 1:step + 2] if attn is not None else None
 
-         
             # compute scores per token position
             pos_scores = scores.index_select(0, bbsz_idx)[:, :step + 1]
             pos_scores[:, step] = eos_scores
             # convert from cumulative to per-position scores
             pos_scores[:, 1:] = pos_scores[:, 1:] - pos_scores[:, :-1]
 
-          
             # normalize sentence-level scores
             if self.normalize_scores:
                 eos_scores /= (step + 1) ** self.len_penalty
@@ -270,7 +271,7 @@ class SequenceGenerator(object):
 
                 model.reorder_incremental_state(reorder_state)
                 encoder_outs = model.reorder_encoder_out(encoder_outs, reorder_state)
-               
+
             lprobs, avg_attn_scores = model.forward_decoder(
                 tokens[:, :step + 1], encoder_outs, temperature=self.temperature,
             )
@@ -500,7 +501,7 @@ class SequenceGenerator(object):
         # sort by score descending
         for sent in range(len(finalized)):
             finalized[sent] = sorted(finalized[sent], key=lambda r: r['score'], reverse=True)
-        
+
         return finalized
 
 
@@ -597,4 +598,3 @@ class EnsembleModel(torch.nn.Module):
             return
         for model in self.models:
             model.decoder.reorder_incremental_state(self.incremental_states[model], new_order)
-

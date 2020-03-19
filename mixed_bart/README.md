@@ -5,6 +5,8 @@
 git clone https://github.com/pytorch/fairseq.git
 cd fairseq
 pip install --editable .
+
+export PYTHONPATH=path/to/fairseq
 ```
 
 #Download BART model
@@ -26,4 +28,12 @@ bash fine_tune.sh
 # In the directory nlg/
 export PYTHONPATH=./bart/fairseq:$PYTHONPATH
 python3 ./bart/test_bart.py
+```
+
+
+#GPT-2 model
+```angular2
+git clone https://github.com/Tenoke/gpt-2.git
+in src/encoder.py change paths
+
 ```
