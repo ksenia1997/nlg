@@ -140,8 +140,9 @@ def bart_beam_decode(model, tf_idf, input_tokens, beam_width, max_len, temperatu
     max_len = max(max_len, 2)
     beam_width = max(beam_width, 2)
     sentences = ""
-
-    print("DECODE: ", model.decode(torch.tensor([0,  2, 3, 4, 5, 118, 524,  45, 686,  99,  14,  16])))
+    print("ENC eos: ", model.encode('<|endoftext|>'))
+    print("DEC eos: ", model.decode(torch.tensor([0, 2])))
+    print("DECODE: ", model.decode(torch.tensor([0, 4, 2,  5, 118, 524, 45, 686, 99, 14, 16])))
     input_tokens = [model.encode(sentence) for sentence in input_tokens]
     sample = model._build_sample(input_tokens)
 
@@ -164,17 +165,17 @@ def bart_beam_decode(model, tf_idf, input_tokens, beam_width, max_len, temperatu
     ensemble_model = EnsembleModel([model.model])
     encoder_outs = ensemble_model.forward_encoder(encoder_input)
     
-    new_order = torch.arange(bsz).view(-1, 1).repeat(1, beam_width).view(-1)
-    new_order = new_order.to(src_tokens.device).long()
-    encoder_outs = ensemble_model.reorder_encoder_out(encoder_outs, new_order)
+    #new_order = torch.arange(bsz).view(-1, 1).repeat(1, beam_width).view(-1)
+    #new_order = new_order.to(src_tokens.device).long()
+    #encoder_outs = ensemble_model.reorder_encoder_out(encoder_outs, new_order)
 
-    tokens = src_tokens.new(bsz * beam_width, max_len + 2).long().fill_(pad)
-    #print("tokens: ", tokens.size(), tokens)
-    tokens[:, 0] = eos
+    tokens = src_tokens.new(bsz, 1).long().fill_(eos)
+    print("tokens: ", tokens.size(), tokens)
+    #tokens[:, 0] = eos
     #print("tokens with eos: ", tokens)
 
     lprobs, avg_attn_scores = ensemble_model.forward_decoder(
-        tokens[:, :1], encoder_outs, temperature=temperature,
+        tokens, encoder_outs, temperature=temperature,
     )
     # lprobs = lprobs.add(tf_idf)
     lprobs[:, pad] = -math.inf  # never select pad
@@ -211,5 +212,14 @@ def bart_beam_decode(model, tf_idf, input_tokens, beam_width, max_len, temperatu
     converted_logits = convert_gpt_idxs_to_bart(logits, lprobs.size(1))
     print("converted logits: ", converted_logits.size())
     lprobs = lprobs * 0.6
-    print(lprobs.add(converted_logits*0.4))
+    add_probs = lprobs.add(converted_logits*0.4)
+    print("add probs: ", add_probs.size())
+    log_prob, indexes = torch.topk(add_probs, beam_width)
+    print("l prob: ", log_prob)
+    print("indexes: ", indexes)
+    print("indexes 0 : ", indexes[0])
+    print("[0, all ]: ", model.decode(torch.tensor([0,  3592,  42891,  118])))
+    print("[0, 42891]: ", model.decode(torch.tensor([0, 42891])))
+    print("[0,  118 ]: ", model.decode(torch.tensor([0, 118])))
+    print("decoded: ", model.decode(indexes[0]))
     exit()
