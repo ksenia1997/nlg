@@ -13,7 +13,7 @@ bart.cuda()
 bart.eval()
 bart.half()
 count = 1
-bsz = 32
+bsz = 1
 with open('../.data/test.source') as source, open('test.hypo', 'w') as fout:
     sline = source.readline().strip()
     slines = [sline]

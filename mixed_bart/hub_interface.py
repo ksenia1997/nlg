@@ -16,12 +16,13 @@ import gpt.src.model as gpt2_model
 import tensorflow as tf
 
 logger = logging.getLogger(__name__)
-
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 def sample(model, tf_idf, sentences: List[str], beam: int = 1, verbose: bool = False,
            **kwargs) -> str:
     input = [model.encode(sentence) for sentence in sentences]
     hypos = generate(model, tf_idf, input, beam, verbose, **kwargs)
+    print("HHH: ", hypos[0]['tokens'])
     return [model.decode(x['tokens']) for x in hypos]
 
 
@@ -45,6 +46,19 @@ def create_tf_idf(model):
     matrix_tf_idf = matrix_tf_idf / (max_nidf - min_nidf)
     return matrix_tf_idf
 
+def convert_gpt_idxs_to_bart(logp, bart_vocab_size):
+    with open("bart_arr_gpt2_idxs", "rb") as fp:
+        bart_tensor_with_gpt2_idxs = pickle.load(fp)
+    converted_logp = []
+    for i in range(bart_vocab_size):
+        gpt2_idx = None
+        if i in bart_tensor_with_gpt2_idxs:
+            gpt2_idx = bart_tensor_with_gpt2_idxs[i]
+        if gpt2_idx == 50257 or gpt2_idx is None:
+            converted_logp.append(0)
+        else:
+            converted_logp.append(logp[0][gpt2_idx])
+    return torch.tensor(converted_logp, device=device).unsqueeze(0)
 
 def sample_beam(model, tf_idf, sentences: List[str], beam: int = 1, max_len: int = 100, temperature=1.,
                 unk_penalty=0.001):
@@ -126,6 +140,8 @@ def bart_beam_decode(model, tf_idf, input_tokens, beam_width, max_len, temperatu
     max_len = max(max_len, 2)
     beam_width = max(beam_width, 2)
     sentences = ""
+
+    print("DECODE: ", model.decode(torch.tensor([0,  2, 3, 4, 5, 118, 524,  45, 686,  99,  14,  16])))
     input_tokens = [model.encode(sentence) for sentence in input_tokens]
     sample = model._build_sample(input_tokens)
 
@@ -144,50 +160,56 @@ def bart_beam_decode(model, tf_idf, input_tokens, beam_width, max_len, temperatu
     print("Input size: ", input_size)
     bsz = input_size[0]
     src_len = input_size[1]
-    with torch.no_grad():
-        ensemble_model = EnsembleModel([model.model])
-        encoder_outs = ensemble_model.forward_encoder(encoder_input)
-        print("encoder outs: ", encoder_outs)
-        new_order = torch.arange(bsz).view(-1, 1).repeat(1, beam_width).view(-1)
-        new_order = new_order.to(src_tokens.device).long()
-        encoder_outs = ensemble_model.reorder_encoder_out(encoder_outs, new_order)
-        print("encoder outs reordered: ", encoder_outs)
+    
+    ensemble_model = EnsembleModel([model.model])
+    encoder_outs = ensemble_model.forward_encoder(encoder_input)
+    
+    new_order = torch.arange(bsz).view(-1, 1).repeat(1, beam_width).view(-1)
+    new_order = new_order.to(src_tokens.device).long()
+    encoder_outs = ensemble_model.reorder_encoder_out(encoder_outs, new_order)
 
-        tokens = src_tokens.new(bsz * beam_width, max_len + 2).long().fill_(pad)
-        print("tokens: ", tokens.size(), tokens)
-        tokens[:, 0] = eos
-        print("tokens with eos: ", tokens)
+    tokens = src_tokens.new(bsz * beam_width, max_len + 2).long().fill_(pad)
+    #print("tokens: ", tokens.size(), tokens)
+    tokens[:, 0] = eos
+    #print("tokens with eos: ", tokens)
 
-        lprobs, avg_attn_scores = ensemble_model.forward_decoder(
-            tokens[:, :1], encoder_outs, temperature=temperature,
-        )
-        # lprobs = lprobs.add(tf_idf)
-        lprobs[:, pad] = -math.inf  # never select pad
-        lprobs[:, unk] -= unk_penalty  # apply unk penalty
-        
-        enc_gpt2 = gpt2_encoder.get_encoder('117M')
-        hparams = gpt2_model.default_hparams()
-        with open(os.path.join('gpt/src/models', '117M', 'hparams.json')) as f:
-             hparams.override_from_dict(json.load(f))   
-        print("enc gpt2: ", enc_gpt2)
-        print("hparams: ", hparams)
-        length = hparams.n_ctx
-        print("length: ", length)
-        start_token = enc_gpt2.encoder['<|endoftext|>']
-        print("start token: ", start_token)
-        context = tf.fill([1, 1], start_token)
-        print("context: ", context)
-        print("n vocab: ", hparams.n_vocab)
-        lm_output = gpt2_model.model(hparams=hparams, X=context, past=None, reuse=tf.AUTO_REUSE)
-        print("lm output: ", lm_output)
-        logits = lm_output['logits'][:, :, :hparams.n_vocab]
-        print("logits: ", logits, type(logits))
-        init = tf.initialize_all_variables()
-        with tf.Session() as sess:
-            sess.run(init)
-            logits = logits.eval()
-        print("LOGITS: ", logits, type(logits)) 
-        # logits = np.asarray(logits)
-        #print("logits numpy: ", logits, type(logits))
-        logits = torch.tensor(logits).float()
-        print("logits torch: ", logits)
+    lprobs, avg_attn_scores = ensemble_model.forward_decoder(
+        tokens[:, :1], encoder_outs, temperature=temperature,
+    )
+    # lprobs = lprobs.add(tf_idf)
+    lprobs[:, pad] = -math.inf  # never select pad
+    lprobs[:, unk] -= unk_penalty  # apply unk penalty
+    print("lprobs size: ", lprobs.size())
+
+    enc_gpt2 = gpt2_encoder.get_encoder('117M')
+    hparams = gpt2_model.default_hparams()
+    with open(os.path.join('gpt/src/models', '117M', 'hparams.json')) as f:
+         hparams.override_from_dict(json.load(f))   
+    print("enc gpt2: ", enc_gpt2)
+    print("hparams: ", hparams)
+    length = hparams.n_ctx
+    start_token = enc_gpt2.encoder['<|endoftext|>']
+    print("start token encoded: ", start_token)
+    print("DECODED GPT2: ", enc_gpt2.decode([ 1551,  4004,  3516]))
+    context = tf.fill([1, 1], start_token)
+    print("context: ", context)
+    print("n vocab: ", hparams.n_vocab)
+    lm_output = gpt2_model.model(hparams=hparams, X=context, past=None, reuse=tf.AUTO_REUSE)
+    print("lm output: ", lm_output)
+    logits = lm_output['logits'][:, :, :hparams.n_vocab]
+    print("logits: ", logits, type(logits))
+    init = tf.initialize_all_variables()
+    with tf.Session() as sess:
+        sess.run(init)
+        logits = logits.eval()
+    print("LOGITS: ", logits, type(logits)) 
+    # logits = np.asarray(logits)
+    #print("logits numpy: ", logits, type(logits))
+    logits = torch.tensor(logits).float()
+    logits = torch.squeeze(logits, 0)
+    print("logits torch: ", logits, logits.size())
+    converted_logits = convert_gpt_idxs_to_bart(logits, lprobs.size(1))
+    print("converted logits: ", converted_logits.size())
+    lprobs = lprobs * 0.6
+    print(lprobs.add(converted_logits*0.4))
+    exit()

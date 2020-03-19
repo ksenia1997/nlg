@@ -68,7 +68,7 @@ class SequenceGenerator(object):
         self.temperature = temperature
         self.match_source_len = match_source_len
         self.no_repeat_ngram_size = no_repeat_ngram_size
-        if self.tf_idf is not None:
+        if tf_idf is not None:
             self.tf_idf = tf_idf.cuda()
         else:
             self.tf_idf = None
