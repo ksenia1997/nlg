@@ -27,7 +27,7 @@ def save_data_for_GPT2(filename, data):
     Returns: None
 
     """
-    with open(filename) as f:
+    with open(filename, "w") as f:
         for i in range(len(data)):
             f.write(data[i] + "\n")
             f.write("\n")

@@ -6,3 +6,5 @@
 mixed_bart/fairseq
 __pycache__
 utils/__pycache__
+mixed_bart/data_bin/
+mixed_bart/gpt/
