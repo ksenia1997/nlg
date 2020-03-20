@@ -17,7 +17,7 @@ bsz = 1
 
 SPECIFICITY = False
 COMBINE_MODELS = True
-with open('../.data/test.source') as source, open('test.hypo', 'w') as fout:
+with open('../.data/test.source') as source, open('test_combined19.hypo', 'w') as fout:
     sline = source.readline().strip()
     slines = [sline]
     if SPECIFICITY:
