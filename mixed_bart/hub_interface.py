@@ -216,7 +216,7 @@ def bart_beam_decode(model, idf, input_tokens, beam_width=2, min_len=5, max_len=
             lprobs[:, unk] -= unk_penalty  # apply unk penalty
             if n.prev_node is None:
                 start_token = [[enc_gpt2.encoder[gpt2_eos]]]
-                print("START TOKEN for decoder 0: ", start_token)
+                #print("START TOKEN for decoder 0: ", start_token)
 
             else:
                 start_token = []
@@ -228,9 +228,9 @@ def bart_beam_decode(model, idf, input_tokens, beam_width=2, min_len=5, max_len=
                     else:
                         start_token.append(gpt2_item)
                 start_token = [start_token]
-                print("START TOKEN for decoder: ", start_token)
+                #print("START TOKEN for decoder: ", start_token)
             context = tf.convert_to_tensor(start_token)
-            print("CONTEXT GPT2: ", context)
+            #print("CONTEXT GPT2: ", context)
             lm_output = gpt2_model.model(hparams=hparams, X=context, past=None, reuse=tf.AUTO_REUSE)
             logits = lm_output['logits'][:, :, :hparams.n_vocab]
             # converting tf.Tensor to torch.tensor
@@ -242,8 +242,8 @@ def bart_beam_decode(model, idf, input_tokens, beam_width=2, min_len=5, max_len=
             logits = torch.squeeze(logits, 0)
 
             converted_logits = convert_gpt_idxs_to_bart(logits, lprobs.size(1))
-            lprobs = lprobs * 0.6
-            add_probs = lprobs.add(converted_logits * 0.4)
+            lprobs = lprobs * 0.1
+            add_probs = lprobs.add(converted_logits * 0.9)
             log_prob, indexes = torch.topk(add_probs, beam_width)
             nextnodes = []
 
