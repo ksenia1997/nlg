@@ -8,7 +8,7 @@ import math
 import torch
 from fairseq import search
 from fairseq.models import FairseqIncrementalDecoder
-
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 class SequenceGenerator(object):
     def __init__(
@@ -21,7 +21,7 @@ class SequenceGenerator(object):
             normalize_scores=True,
             len_penalty=1.,
             unk_penalty=0.,
-            tf_idf=None,
+            idf=None,
             retain_dropout=False,
             temperature=1.,
             match_source_len=False,
@@ -68,10 +68,10 @@ class SequenceGenerator(object):
         self.temperature = temperature
         self.match_source_len = match_source_len
         self.no_repeat_ngram_size = no_repeat_ngram_size
-        if tf_idf is not None:
-            self.tf_idf = tf_idf.cuda()
+        if idf is not None:
+            self.idf = idf.to(device)
         else:
-            self.tf_idf = None
+            self.idf = None
         assert temperature > 0, '--temperature must be greater than 0'
 
         self.search = (
@@ -275,7 +275,8 @@ class SequenceGenerator(object):
             lprobs, avg_attn_scores = model.forward_decoder(
                 tokens[:, :step + 1], encoder_outs, temperature=self.temperature,
             )
-            lprobs = lprobs.add(self.tf_idf)
+            if self.idf is not None:
+                lprobs = lprobs.add(self.idf)
             lprobs[lprobs != lprobs] = -math.inf
 
             lprobs[:, self.pad] = -math.inf  # never select pad

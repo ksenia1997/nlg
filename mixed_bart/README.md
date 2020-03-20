@@ -19,7 +19,7 @@ tar -xzvf bart.large.tar.gz
 #Fine-tuning BART on the dataset
 ```
 # create a directory in nlg/bart
-mkdir data-bin
+mkdir data_bin
 
 bash BPE_preprocess.sh
 bash binarize_dataset.sh

@@ -21,10 +21,10 @@ device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 logger = logging.getLogger(__name__)
 
 
-def sample(model, tf_idf, sentences: List[str], beam: int = 1, verbose: bool = False,
+def sample(model, idf, sentences: List[str], beam: int = 1, verbose: bool = False,
            **kwargs) -> str:
     input = [model.encode(sentence) for sentence in sentences]
-    hypos = generate(model, tf_idf, input, beam, verbose, **kwargs)
+    hypos = generate(model, idf, input, beam, verbose, **kwargs)
     return [model.decode(x['tokens']) for x in hypos]
 
 
@@ -69,7 +69,7 @@ def convert_gpt_idxs_to_bart(logp, bart_vocab_size):
     return torch.tensor(converted_logp, device=device).unsqueeze(0)
 
 
-def generate(model, tf_idf_matrix, tokens: List[torch.LongTensor], beam: int = 5, verbose: bool = False,
+def generate(model, idf_matrix, tokens: List[torch.LongTensor], beam: int = 5, verbose: bool = False,
              **kwargs) -> torch.LongTensor:
     sample = model._build_sample(tokens)
 
@@ -114,7 +114,7 @@ def generate(model, tf_idf_matrix, tokens: List[torch.LongTensor], beam: int = 5
         normalize_scores=(not getattr(gen_args, 'unnormalized', False)),
         len_penalty=getattr(gen_args, 'lenpen', 1),
         unk_penalty=getattr(gen_args, 'unkpen', 0),
-        tf_idf=tf_idf_matrix,
+        idf=idf_matrix,
         temperature=getattr(gen_args, 'temperature', 1.),
         match_source_len=getattr(gen_args, 'match_source_len', False),
         no_repeat_ngram_size=getattr(gen_args, 'no_repeat_ngram_size', 0),
@@ -158,7 +158,7 @@ class BeamSearchNode(object):
         return self.logp / float(self.length - 1 + 1e-6) + alpha * reward
 
 
-def bart_beam_decode(model, idf, input_tokens, beam_width=2, min_len=5, max_len=100, max_sentence_count=2,
+def bart_beam_decode(model, weights, input_tokens, beam_width=2, min_len=5, max_len=100, max_sentence_count=2,
                      temperature=1, unk_penalty=0.001):
     assert max_len > 2
     assert max_sentence_count > 1
@@ -210,14 +210,10 @@ def bart_beam_decode(model, idf, input_tokens, beam_width=2, min_len=5, max_len=
 
             lprobs, avg_attn_scores = ensemble_model.forward_decoder(
                 decoder_input, encoder_outs, temperature=temperature)
-            if idf is not None:
-                lprobs = lprobs.add(idf)
             lprobs[:, pad] = -math.inf  # never select pad
             lprobs[:, unk] -= unk_penalty  # apply unk penalty
             if n.prev_node is None:
                 start_token = [[enc_gpt2.encoder[gpt2_eos]]]
-                print("START TOKEN for decoder 0: ", start_token)
-
             else:
                 start_token = []
                 bart_gpt2_dict = get_bart_tensor_with_gpt2_idxs()
@@ -228,9 +224,7 @@ def bart_beam_decode(model, idf, input_tokens, beam_width=2, min_len=5, max_len=
                     else:
                         start_token.append(gpt2_item)
                 start_token = [start_token]
-                print("START TOKEN for decoder: ", start_token)
             context = tf.convert_to_tensor(start_token)
-            print("CONTEXT GPT2: ", context)
             lm_output = gpt2_model.model(hparams=hparams, X=context, past=None, reuse=tf.AUTO_REUSE)
             logits = lm_output['logits'][:, :, :hparams.n_vocab]
             # converting tf.Tensor to torch.tensor
@@ -242,8 +236,8 @@ def bart_beam_decode(model, idf, input_tokens, beam_width=2, min_len=5, max_len=
             logits = torch.squeeze(logits, 0)
 
             converted_logits = convert_gpt_idxs_to_bart(logits, lprobs.size(1))
-            lprobs = lprobs * 0.6
-            add_probs = lprobs.add(converted_logits * 0.4)
+            lprobs = lprobs * weights[0]
+            add_probs = lprobs.add(converted_logits * weights[1])
             log_prob, indexes = torch.topk(add_probs, beam_width)
             nextnodes = []
 
