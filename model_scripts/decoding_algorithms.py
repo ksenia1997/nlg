@@ -166,7 +166,6 @@ def beam_decode(vocab, beam_width, max_len, topk, decoder, with_attention, targe
 
         # start the queue
         nodes.put((-node.eval(), node))
-        qsize = 1
 
         # start beam search
         while True:
@@ -204,8 +203,6 @@ def beam_decode(vocab, beam_width, max_len, topk, decoder, with_attention, targe
             for i in range(len(nextnodes)):
                 score, nn = nextnodes[i]
                 nodes.put((score, nn))
-                # increase qsize
-            qsize += len(nextnodes) - 1
 
         # choose nbest paths, back trace them
         if len(endnodes) == 0:
