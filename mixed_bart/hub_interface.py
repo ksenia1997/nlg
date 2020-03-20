@@ -28,7 +28,7 @@ def sample(model, tf_idf, sentences: List[str], beam: int = 1, verbose: bool = F
     return [model.decode(x['tokens']) for x in hypos]
 
 
-def create_tf_idf(model):
+def create_idf(model):
     with open("../.data/tf-idf", "rb") as fp:
         sentences = pickle.load(fp)
     indexes = list(range(0, len(model.task.target_dictionary)))
@@ -52,7 +52,8 @@ def create_tf_idf(model):
 def get_bart_tensor_with_gpt2_idxs():
     with open("bart_arr_gpt2_idxs", "rb") as fp:
         bart_tensor_with_gpt2_idxs = pickle.load(fp)
-    return  bart_tensor_with_gpt2_idxs
+    return bart_tensor_with_gpt2_idxs
+
 
 def convert_gpt_idxs_to_bart(logp, bart_vocab_size):
     bart_tensor_with_gpt2_idxs = get_bart_tensor_with_gpt2_idxs()
@@ -66,11 +67,6 @@ def convert_gpt_idxs_to_bart(logp, bart_vocab_size):
         else:
             converted_logp.append(logp[0][gpt2_idx])
     return torch.tensor(converted_logp, device=device).unsqueeze(0)
-
-
-def sample_beam(model, tf_idf, sentences: List[str], beam: int = 1, max_len: int = 100, temperature=1.,
-                unk_penalty=0.001):
-    pass
 
 
 def generate(model, tf_idf_matrix, tokens: List[torch.LongTensor], beam: int = 5, verbose: bool = False,
@@ -162,15 +158,16 @@ class BeamSearchNode(object):
         return self.logp / float(self.length - 1 + 1e-6) + alpha * reward
 
 
-def bart_beam_decode(model, tf_idf, input_tokens, beam_width, max_len, max_sentence_count, temperature, unk_penalty):
+def bart_beam_decode(model, idf, input_tokens, beam_width=2, min_len=5, max_len=100, max_sentence_count=2,
+                     temperature=1, unk_penalty=0.001):
     assert max_len > 2
     assert max_sentence_count > 1
     assert beam_width > 2
+    assert min_len > 1
 
     decoded_batch = []
-    sentences = ""
 
-    # BART pad, unk and eos
+    # BART
     pad = model.task.target_dictionary.pad()
     unk = model.task.target_dictionary.unk()
     eos = model.task.target_dictionary.eos()
@@ -182,13 +179,12 @@ def bart_beam_decode(model, tf_idf, input_tokens, beam_width, max_len, max_sente
     gpt2_eos = '<|endoftext|>'
     with open(os.path.join('gpt/src/models', '117M', 'hparams.json')) as f:
         hparams.override_from_dict(json.load(f))
-    gpt2_len = hparams.n_ctx
-    print("Input tokens", input_tokens)
+
     for i in range(len(input_tokens)):
         endnodes = []
         nodes = PriorityQueue()
-        qsize = 1
         print("Input tokens i: ", input_tokens[i])
+
         # BART
         enc_tokens = [model.encode(input_tokens[i])]
         sample = model._build_sample(enc_tokens)
@@ -214,19 +210,17 @@ def bart_beam_decode(model, tf_idf, input_tokens, beam_width, max_len, max_sente
 
             lprobs, avg_attn_scores = ensemble_model.forward_decoder(
                 decoder_input, encoder_outs, temperature=temperature)
-            # lprobs = lprobs.add(tf_idf)
+            if idf is not None:
+                lprobs = lprobs.add(idf)
             lprobs[:, pad] = -math.inf  # never select pad
             lprobs[:, unk] -= unk_penalty  # apply unk penalty
             if n.prev_node is None:
-                # GPT-2 start generation with eos
                 start_token = [[enc_gpt2.encoder[gpt2_eos]]]
-                print("START TOKEN: ", start_token)
-                
+                print("START TOKEN for decoder 0: ", start_token)
+
             else:
-                print("GPT2 dec: ", decoder_input.squeeze(0).size())
                 start_token = []
                 bart_gpt2_dict = get_bart_tensor_with_gpt2_idxs()
-                #dec_input = model.decode(decoder_input.squeeze(0))
                 for item in decoder_input.squeeze(0):
                     gpt2_item = bart_gpt2_dict[item]
                     if gpt2_item == 50257:
@@ -234,14 +228,9 @@ def bart_beam_decode(model, tf_idf, input_tokens, beam_width, max_len, max_sente
                     else:
                         start_token.append(gpt2_item)
                 start_token = [start_token]
-                print("dec input for GPT2", start_token)
-                #print("enc EOS: ", enc_gpt2.encoder[gpt2_eos])
-                #print("enc_gpt2.encoder: ", enc_gpt2.encoder[gpt2_eos + ' hello how are you?'])
-                #start_token = enc_gpt2.encoder[gpt2_eos + dec_input]
-                #start_token = torch.tensor(dec_input, device=device)
-                #print("START: ", start_token, start_token.size())
+                print("START TOKEN for decoder: ", start_token)
             context = tf.convert_to_tensor(start_token)
-            print("context: ", context)
+            print("CONTEXT GPT2: ", context)
             lm_output = gpt2_model.model(hparams=hparams, X=context, past=None, reuse=tf.AUTO_REUSE)
             logits = lm_output['logits'][:, :, :hparams.n_vocab]
             # converting tf.Tensor to torch.tensor
@@ -253,21 +242,15 @@ def bart_beam_decode(model, tf_idf, input_tokens, beam_width, max_len, max_sente
             logits = torch.squeeze(logits, 0)
 
             converted_logits = convert_gpt_idxs_to_bart(logits, lprobs.size(1))
-            print("converted logits: ", converted_logits.size())
             lprobs = lprobs * 0.6
             add_probs = lprobs.add(converted_logits * 0.4)
-            print("add probs: ", add_probs.size())
             log_prob, indexes = torch.topk(add_probs, beam_width)
             nextnodes = []
 
             for new_k in range(beam_width):
                 decoded_t = indexes[0][new_k].unsqueeze(0).unsqueeze(0)
-                print("decoded t: ", decoded_t, decoded_t.size())
-                print("decoded input: ", decoder_input, decoder_input.size())
                 decoded_t = torch.cat((decoder_input, decoded_t), 1)
-                print("decoded t concatenated: ", decoded_t, decoded_t.size())
                 log_p = log_prob[0][new_k].item()
-                print("log p: ", log_p)
                 node = BeamSearchNode(n, decoded_t, n.logp + log_p, n.length + 1)
                 score = -node.eval()
                 nextnodes.append((score, node))
@@ -275,23 +258,18 @@ def bart_beam_decode(model, tf_idf, input_tokens, beam_width, max_len, max_sente
             for nn_i in range(len(nextnodes)):
                 score, nn = nextnodes[nn_i]
                 nodes.put((score, nn))
-                # increase qsize
-            qsize += len(nextnodes) - 1
 
         # choose nbest paths, back trace them
         if len(endnodes) == 0:
             endnodes = [nodes.get() for _ in range(max_sentence_count)]
 
+        beam_sentences = []
         for score, n in sorted(endnodes, key=operator.itemgetter(0)):
-            utterance = [n.word_ids]
-            # back trace
-            while n.prev_node is not None:
-                n = n.prev_node
-                utterance.append(n.word_ids)
-                print("n word_ids: ", n.word_ids.size())
-                print("squeeze: ", n.word_ids.squeeze(0).size())
-                sentence = model.decode(n.word_ids.squeeze(0))
-                print("decoded sentence: ", sentence)
-                decoded_batch.append(sentence)
+            if n.length < min_len:
+                continue
+            sentence = model.decode(n.word_ids.squeeze(0))
+            print("decoded sentence: ", sentence)
+            beam_sentences.append(sentence)
+        decoded_batch.append("#".join(beam_sentences))
+    print("[DECODED BATCH]: ", decoded_batch)
     return decoded_batch
-
