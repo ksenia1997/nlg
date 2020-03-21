@@ -32,7 +32,7 @@ python3 ./bart/test_bart.py
 
 
 #GPT-2 model
-```angular2
+```
 git clone https://github.com/Tenoke/gpt-2.git
 in src/encoder.py change paths
 

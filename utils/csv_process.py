@@ -73,3 +73,21 @@ def save_data_in_column(filename, data_to_zip, columns_names):
         wr.writerow(columns_names)
         wr.writerows(export_data)
     csv_file.close()
+
+
+def convert_csv_from_txt(file_csv, file_txt, column_name):
+    first_line = True
+    with open(file_csv, "r") as csv_file, open(file_txt, "w") as txt_file:
+        csv_reader = csv.reader(csv_file, delimiter=',')
+        for row in csv_reader:
+            if first_line:
+                first_line = False
+                idx_column_name = row.index(column_name)
+                continue
+
+            txt_file.write(row[idx_column_name] + "\n")
+            txt_file.write("\n")
+
+
+    csv_file.close()
+    txt_file.close()

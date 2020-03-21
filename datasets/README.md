@@ -27,5 +27,6 @@ https://github.com/taivop/joke-dataset
 short jokes
 https://www.kaggle.com/abhinavmoudgil95/short-jokes
 
-
+poetic dataset
+https://www.kaggle.com/johnhallman/complete-poetryfoundationorg-dataset#kaggle_poem_dataset.csv
 /mnt/minerva1/nlp/projects/stylized_nlg
