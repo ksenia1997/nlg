@@ -158,7 +158,7 @@ class BeamSearchNode(object):
         return self.logp / float(self.length - 1 + 1e-6) + alpha * reward
 
 
-def bart_beam_decode(model, weights, input_tokens, beam_width=2, min_len=5, max_len=100, max_sentence_count=2,
+def bart_beam_decode(model, weights, input_tokens, beam_width=2, min_len=3, max_len=100, max_sentence_count=2,
                      temperature=1, unk_penalty=0.001):
     assert max_len > 2
     assert max_sentence_count > 1
@@ -181,6 +181,7 @@ def bart_beam_decode(model, weights, input_tokens, beam_width=2, min_len=5, max_
         hparams.override_from_dict(json.load(f))
 
     for i in range(len(input_tokens)):
+        print("len(input_tokens: )", len(input_tokens))
         endnodes = []
         nodes = PriorityQueue()
         print("Input tokens i: ", input_tokens[i])
@@ -203,6 +204,7 @@ def bart_beam_decode(model, weights, input_tokens, beam_width=2, min_len=5, max_
             decoder_input = n.word_ids
             if (n.word_ids[0][-1].item() == eos and n.prev_node != None) or n.length >= max_len:
                 endnodes.append((score, n))
+                print("appended n: ", n.word_ids, n.length)
                 if len(endnodes) >= max_sentence_count:
                     break
                 else:
@@ -247,11 +249,8 @@ def bart_beam_decode(model, weights, input_tokens, beam_width=2, min_len=5, max_
                 log_p = log_prob[0][new_k].item()
                 node = BeamSearchNode(n, decoded_t, n.logp + log_p, n.length + 1)
                 score = -node.eval()
-                nextnodes.append((score, node))
-
-            for nn_i in range(len(nextnodes)):
-                score, nn = nextnodes[nn_i]
-                nodes.put((score, nn))
+                nodes.put((score, node))
+                print("NEW node: ", node.word_ids, node.length)
 
         # choose nbest paths, back trace them
         if len(endnodes) == 0:
@@ -260,6 +259,7 @@ def bart_beam_decode(model, weights, input_tokens, beam_width=2, min_len=5, max_
         beam_sentences = []
         for score, n in sorted(endnodes, key=operator.itemgetter(0)):
             if n.length < min_len:
+                print("!!!continue")
                 continue
             sentence = model.decode(n.word_ids.squeeze(0))
             print("decoded sentence: ", sentence)
