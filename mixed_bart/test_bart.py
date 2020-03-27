@@ -28,7 +28,8 @@ with open('../.data/test.source') as source, open('test_combined91.hypo', 'w') a
             with torch.no_grad():
                 if COMBINE_MODELS:
                     hypotheses_batch = bart_beam_decode(bart, [0.9, 0.1], slines, beam_width=3, min_len=3, max_len=20,
-                                     max_sentence_count=3, temperature=1, unk_penalty=0.001)
+                                                        max_sentence_count=3, temperature=1, unk_penalty=0.001,
+                                                        block_unigram=3)
                 if SPECIFICITY:
                     hypotheses_batch = sample(bart, idf_indexes, slines, beam=3, lenpen=2.0, max_len_b=100, min_len=5,
                                               no_repeat_ngram_size=2)
