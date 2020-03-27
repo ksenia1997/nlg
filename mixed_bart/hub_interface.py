@@ -140,7 +140,7 @@ def generate(model, idf_matrix, tokens: List[torch.LongTensor], beam: int = 5, v
 
 
 class BeamSearchNode(object):
-    def __init__(self, previous_node, word_ids, log_prob, length):
+    def __init__(self, previous_node, word_ids, log_prob, length, penalty):
         '''
         :param previousNode:
         :param wordId:
@@ -151,6 +151,7 @@ class BeamSearchNode(object):
         self.word_ids = word_ids
         self.logp = log_prob
         self.length = length
+        self.block_penalty = penalty
 
     def eval(self, alpha=1.0):
         reward = np.random.uniform(0.1, 10 ** (-20))
@@ -159,7 +160,7 @@ class BeamSearchNode(object):
 
 
 def bart_beam_decode(model, weights, input_tokens, beam_width=2, min_len=3, max_len=100, max_sentence_count=2,
-                     temperature=1, unk_penalty=0.001):
+                     temperature=1, unk_penalty=0.001, block_unigram=None):
     assert max_len > 2
     assert max_sentence_count > 1
     assert beam_width > 2
@@ -179,6 +180,7 @@ def bart_beam_decode(model, weights, input_tokens, beam_width=2, min_len=3, max_
     gpt2_eos = '<|endoftext|>'
     with open(os.path.join('gpt/src/models', '117M', 'hparams.json')) as f:
         hparams.override_from_dict(json.load(f))
+    bart_gpt2_dict = get_bart_tensor_with_gpt2_idxs()
 
     for i in range(len(input_tokens)):
         print("len(input_tokens: )", len(input_tokens))
@@ -196,7 +198,8 @@ def bart_beam_decode(model, weights, input_tokens, beam_width=2, min_len=3, max_
         src_tokens = encoder_input['src_tokens']
         encoder_outs = ensemble_model.forward_encoder(encoder_input)
         target_tokens = src_tokens.new(1, 1).long().fill_(eos)
-        node = BeamSearchNode(None, target_tokens, 0, 1)
+        penalty = torch.zeros([1, 50264], dtype=torch.float64).to(device)
+        node = BeamSearchNode(None, target_tokens, 0, 1, penalty)
         nodes.put((-node.eval(), node))
 
         while True:
@@ -218,7 +221,6 @@ def bart_beam_decode(model, weights, input_tokens, beam_width=2, min_len=3, max_
                 start_token = [[enc_gpt2.encoder[gpt2_eos]]]
             else:
                 start_token = []
-                bart_gpt2_dict = get_bart_tensor_with_gpt2_idxs()
                 for item in decoder_input.squeeze(0):
                     gpt2_item = bart_gpt2_dict[item]
                     if gpt2_item == 50257:
@@ -239,18 +241,26 @@ def bart_beam_decode(model, weights, input_tokens, beam_width=2, min_len=3, max_
 
             converted_logits = convert_gpt_idxs_to_bart(logits, lprobs.size(1))
             lprobs = lprobs * weights[0]
-            add_probs = lprobs.add(converted_logits * weights[1])
-            log_prob, indexes = torch.topk(add_probs, beam_width)
-            nextnodes = []
-
+            concat_probs = lprobs.add(converted_logits * weights[1])
+            concat_probs = concat_probs.add(n.block_penalty)
+            log_prob, indexes = torch.topk(concat_probs, beam_width)
+            node_penalty = n.block_penalty.clone()
             for new_k in range(beam_width):
-                decoded_t = indexes[0][new_k].unsqueeze(0).unsqueeze(0)
-                decoded_t = torch.cat((decoder_input, decoded_t), 1)
+                decoded_item = indexes[0][new_k].unsqueeze(0).unsqueeze(0)
+                decoded_t = torch.cat((decoder_input, decoded_item), 1)
+                if block_unigram is not None:
+                    decoded_unique = decoded_t.unique(sorted=True)
+                    if decoded_t.size(1) != decoded_unique.size(0):
+                        decoded_unique_count = torch.stack([(decoded_t == d_u).sum() for d_u in decoded_unique])
+                        idx_2_block = (torch.abs((block_unigram-decoded_unique_count))<0.0001).nonzero()
+                        if idx_2_block.size(0) != 0:
+                            for indxes in idx_2_block[0]:
+                                idx_token = decoded_unique_count[indxes]
+                                node_penalty[0][idx_token] -= 0.001
                 log_p = log_prob[0][new_k].item()
-                node = BeamSearchNode(n, decoded_t, n.logp + log_p, n.length + 1)
+                node = BeamSearchNode(n, decoded_t, n.logp + log_p, n.length + 1, node_penalty)
                 score = -node.eval()
                 nodes.put((score, node))
-                print("NEW node: ", node.word_ids, node.length)
 
         # choose nbest paths, back trace them
         if len(endnodes) == 0:
