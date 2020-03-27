@@ -196,7 +196,6 @@ def bart_beam_decode(model, weights, input_tokens, beam_width=2, min_len=3, max_
         src_tokens = encoder_input['src_tokens']
         encoder_outs = ensemble_model.forward_encoder(encoder_input)
         target_tokens = src_tokens.new(1, 1).long().fill_(eos)
-
         penalty = torch.zeros([1, 50264], dtype=torch.float64).to(device)
         node = BeamSearchNode(None, target_tokens, 0, 1, penalty)
         nodes.put((-node.eval(), node))
@@ -246,7 +245,7 @@ def bart_beam_decode(model, weights, input_tokens, beam_width=2, min_len=3, max_
             concat_probs = lprobs.add(converted_logits * weights[1])
             concat_probs = concat_probs.add(n.block_penalty)
             log_prob, indexes = torch.topk(concat_probs, beam_width)
-            node_penalty = n.block_penalty
+            node_penalty = n.block_penalty.clone()
             for new_k in range(beam_width):
                 decoded_item = indexes[0][new_k].unsqueeze(0).unsqueeze(0)
                 decoded_t = torch.cat((decoder_input, decoded_item), 1)
@@ -254,10 +253,10 @@ def bart_beam_decode(model, weights, input_tokens, beam_width=2, min_len=3, max_
                     decoded_unique = decoded_t.unique(sorted=True)
                     if decoded_t.size(1) != decoded_unique.size(0):
                         decoded_unique_count = torch.stack([(decoded_t == d_u).sum() for d_u in decoded_unique])
-                        idx_2_block = (torch.abs((block_unigram - decoded_unique_count)) < 0.0001).nonzero()
+                        idx_2_block = (torch.abs((block_unigram-decoded_unique_count))<0.0001).nonzero()
                         if idx_2_block.size(0) != 0:
                             for indxes in idx_2_block[0]:
-                                idx_token = decoded_unique_count[indxes[0]]
+                                idx_token = decoded_unique_count[indxes]
                                 node_penalty[0][idx_token] -= 0.001
                 log_p = log_prob[0][new_k].item()
                 node = BeamSearchNode(n, decoded_t, n.logp + log_p, n.length + 1, node_penalty)
