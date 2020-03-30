@@ -35,7 +35,8 @@ python3 ./bart/test_bart.py
 ```
 git clone https://github.com/Tenoke/gpt-2.git
 export PYTHONPATH=/path/to/gpt-2/src
-python encode.py /path/to/your_data.txt /path/to/encoded.npz
-in src/encoder.py change paths
+
+python ./encode.py <file|directory|glob> /path/to/encoded.npz
+python ./train.py --dataset /path/to/encoded.npz
 
 ```

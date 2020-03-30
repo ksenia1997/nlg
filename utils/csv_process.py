@@ -75,7 +75,7 @@ def save_data_in_column(filename, data_to_zip, columns_names):
     csv_file.close()
 
 
-def convert_csv_from_txt(file_csv, file_txt, column_name):
+def convert_csv_to_txt(file_csv, file_txt, column_name):
     first_line = True
     with open(file_csv, "r") as csv_file, open(file_txt, "w") as txt_file:
         csv_reader = csv.reader(csv_file, delimiter=',')

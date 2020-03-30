@@ -335,7 +335,7 @@ def prepare_data(config):
             pickle.dump(sentences, fp)
         return
     if config["data_type"] == "POETIC":
-        convert_csv_from_txt(DATASETS_PATH + 'kaggle_poem_dataset.csv', SAVE_DATA_PATH + "poetic_data.txt", "Content")
+        convert_csv_to_txt(DATASETS_PATH + 'kaggle_poem_dataset.csv', SAVE_DATA_PATH + "poetic_data.txt", "Content")
         return
     if config["data_type"] == "PERSONA":
         print("[Preparing Persona data]")
