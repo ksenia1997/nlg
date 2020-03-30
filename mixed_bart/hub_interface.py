@@ -55,8 +55,7 @@ def get_bart_tensor_with_gpt2_idxs():
     return bart_tensor_with_gpt2_idxs
 
 
-def convert_gpt_idxs_to_bart(logp, bart_vocab_size):
-    bart_tensor_with_gpt2_idxs = get_bart_tensor_with_gpt2_idxs()
+def convert_gpt_idxs_to_bart(logp, bart_vocab_size, bart_tensor_with_gpt2_idxs):
     converted_logp = []
     for i in range(bart_vocab_size):
         gpt2_idx = None
@@ -159,45 +158,83 @@ class BeamSearchNode(object):
         return self.logp / float(self.length - 1 + 1e-6) + alpha * reward
 
 
-def bart_beam_decode(model, weights, input_tokens, beam_width=2, min_len=3, max_len=100, max_sentence_count=2,
-                     temperature=1, unk_penalty=0.001, block_unigram=None):
+class BartModel(object):
+    def __init__(self, model):
+        self.model = model
+        self.pad = model.task.target_dictionary.pad()
+        self.unk = model.task.target_dictionary.unk()
+        self.eos = model.task.target_dictionary.eos()
+        self.ensemble_model = EnsembleModel([model.model])
+
+
+class GPT2Model(object):
+    def __init__(self):
+        self.encoder = gpt2_encoder.get_encoder('117M')
+        self.hyper_params = gpt2_model.default_hparams()
+        self.eos = '<|endoftext|>'
+        self.bart_gpt2_dict = get_bart_tensor_with_gpt2_idxs()
+        with open(os.path.join('gpt/src/models', '117M', 'hparams.json')) as f:
+            self.hyper_params.override_from_dict(json.load(f))
+
+
+def greedy_decoding(bart: BartModel, gpt2: GPT2Model, max_len=100):
+    softmax = torch.nn.LogSoftmax()
+    start_token = [gpt2.encoder.encoder[gpt2.eos]]
+    decoded_items = torch.tensor((), dtype=torch.long)
+    decoded_items.new(1, 1).long().fill_(bart.eos)
+    print("dec items start: ", decoded_items)
+    print("bart eos: ", bart.eos)
+    for i in range(max_len):
+        context = tf.convert_to_tensor([start_token])
+        lm_output = gpt2_model.model(hparams=gpt2.hyper_params, X=context, past=None, reuse=tf.AUTO_REUSE)
+        logits = lm_output['logits'][:, :, :gpt2.hyper_params.n_vocab]
+        # converting tf.Tensor to torch.tensor
+        init = tf.global_variables_initializer()
+        with tf.Session() as sess:
+            sess.run(init)
+            logits = logits.eval()
+        logits = torch.tensor(logits)
+        logits = torch.squeeze(logits, 0)
+
+        converted_logits = convert_gpt_idxs_to_bart(logits, 50264, gpt2.bart_gpt2_dict)
+        converted_logits = softmax(converted_logits)
+        log_prob, indexes = torch.topk(converted_logits, 1)
+        print("bart item: ", indexes[0][0].unsqueeze(0).unsqueeze(0))
+        decoded_items = torch.cat((decoded_items.cuda(),  indexes[0][0].unsqueeze(0).unsqueeze(0).cuda()),1)
+        gpt2_item = gpt2.bart_gpt2_dict[indexes[0][0]]
+        print("gpt2 item: ", gpt2_item)
+        start_token.append(gpt2_item)
+        print("gpt2 start token ", start_token)
+        print("bart dec items: ", decoded_items)
+    decoded_gpt2 = gpt2.encoder.decode(start_token)
+    decoded = bart.model.decode(decoded_items.squeeze(0))
+    print("Decoded BART: ", decoded)
+    print("Decoded GPT2: ", decoded_gpt2)
+
+
+def bart_beam_decode(bart: BartModel, gpt2: GPT2Model, weights, input_tokens, beam_width=0, top_p=0.0, min_len=3,
+                     max_len=100, max_sentence_count=2, temperature=1, unk_penalty=0.001, block_unigram=None):
     assert max_len > 2
     assert max_sentence_count > 1
-    assert beam_width > 2
+    # assert beam_width > 2
     assert min_len > 1
 
     decoded_batch = []
 
-    # BART
-    pad = model.task.target_dictionary.pad()
-    unk = model.task.target_dictionary.unk()
-    eos = model.task.target_dictionary.eos()
-    ensemble_model = EnsembleModel([model.model])
-
-    # GPT-2
-    enc_gpt2 = gpt2_encoder.get_encoder('117M')
-    hparams = gpt2_model.default_hparams()
-    gpt2_eos = '<|endoftext|>'
-    with open(os.path.join('gpt/src/models', '117M', 'hparams.json')) as f:
-        hparams.override_from_dict(json.load(f))
-    bart_gpt2_dict = get_bart_tensor_with_gpt2_idxs()
-
     for i in range(len(input_tokens)):
-        print("len(input_tokens: )", len(input_tokens))
         endnodes = []
         nodes = PriorityQueue()
-        print("Input tokens i: ", input_tokens[i])
-
+        print("[Input]: ", input_tokens[i])
         # BART
-        enc_tokens = [model.encode(input_tokens[i])]
-        sample = model._build_sample(enc_tokens)
+        enc_tokens = [bart.model.encode(input_tokens[i])]
+        sample = bart.model._build_sample(enc_tokens)
         encoder_input = {
             k: v for k, v in sample['net_input'].items()
             if k != 'prev_output_tokens'
         }
         src_tokens = encoder_input['src_tokens']
-        encoder_outs = ensemble_model.forward_encoder(encoder_input)
-        target_tokens = src_tokens.new(1, 1).long().fill_(eos)
+        encoder_outs = bart.ensemble_model.forward_encoder(encoder_input)
+        target_tokens = src_tokens.new(1, 1).long().fill_(bart.eos)
         penalty = torch.zeros([1, 50264], dtype=torch.float64).to(device)
         node = BeamSearchNode(None, target_tokens, 0, 1, penalty)
         nodes.put((-node.eval(), node))
@@ -205,32 +242,35 @@ def bart_beam_decode(model, weights, input_tokens, beam_width=2, min_len=3, max_
         while True:
             score, n = nodes.get()
             decoder_input = n.word_ids
-            if (n.word_ids[0][-1].item() == eos and n.prev_node != None) or n.length >= max_len:
+            if (n.word_ids[0][-1].item() == bart.eos and n.prev_node != None) or n.length >= max_len:
+                if n.length < min_len:
+                    continue
                 endnodes.append((score, n))
-                print("appended n: ", n.word_ids, n.length)
                 if len(endnodes) >= max_sentence_count:
                     break
                 else:
                     continue
 
-            lprobs, avg_attn_scores = ensemble_model.forward_decoder(
+            lprobs, avg_attn_scores = bart.ensemble_model.forward_decoder(
                 decoder_input, encoder_outs, temperature=temperature)
-            lprobs[:, pad] = -math.inf  # never select pad
-            lprobs[:, unk] -= unk_penalty  # apply unk penalty
+            lprobs[:, bart.pad] = -math.inf  # never select pad
+            lprobs[:, bart.unk] -= unk_penalty  # apply unk penalty
+
             if n.prev_node is None:
-                start_token = [[enc_gpt2.encoder[gpt2_eos]]]
+                start_token = [[gpt2.encoder.encoder[gpt2.eos]]]
             else:
                 start_token = []
                 for item in decoder_input.squeeze(0):
-                    gpt2_item = bart_gpt2_dict[item]
+                    gpt2_item = gpt2.bart_gpt2_dict[item]
                     if gpt2_item == 50257:
                         start_token.append(0)
                     else:
                         start_token.append(gpt2_item)
                 start_token = [start_token]
+
             context = tf.convert_to_tensor(start_token)
-            lm_output = gpt2_model.model(hparams=hparams, X=context, past=None, reuse=tf.AUTO_REUSE)
-            logits = lm_output['logits'][:, :, :hparams.n_vocab]
+            lm_output = gpt2_model.model(hparams=gpt2.hyper_params, X=context, past=None, reuse=tf.AUTO_REUSE)
+            logits = lm_output['logits'][:, :, :gpt2.hyper_params.n_vocab]
             # converting tf.Tensor to torch.tensor
             init = tf.global_variables_initializer()
             with tf.Session() as sess:
@@ -238,12 +278,20 @@ def bart_beam_decode(model, weights, input_tokens, beam_width=2, min_len=3, max_
                 logits = logits.eval()
             logits = torch.tensor(logits)
             logits = torch.squeeze(logits, 0)
+            converted_logits = convert_gpt_idxs_to_bart(logits, lprobs.size(1), gpt2.bart_gpt2_dict)
 
-            converted_logits = convert_gpt_idxs_to_bart(logits, lprobs.size(1))
+            sfmax = torch.nn.LogSoftmax()
+            converted_logits = sfmax(converted_logits)
             lprobs = lprobs * weights[0]
             concat_probs = lprobs.add(converted_logits * weights[1])
-            concat_probs = concat_probs.add(n.block_penalty)
-            log_prob, indexes = torch.topk(concat_probs, beam_width)
+            if beam_width > 0:
+                log_prob, indexes = torch.topk(concat_probs, beam_width)
+            if top_p > 0.:
+                concat_probs = concat_probs.add(n.block_penalty)
+                sorted_logits, sorted_indices = torch.sort(concat_probs, descending=True)
+                sigmoid_logs = 1 / (1 + torch.exp(-sorted_logits))
+                sorted_indices_to_remove = sigmoid_logs > top_p
+                print("sorted indicies to remove: ", sorted_indices_to_remove)
             node_penalty = n.block_penalty.clone()
             for new_k in range(beam_width):
                 decoded_item = indexes[0][new_k].unsqueeze(0).unsqueeze(0)
@@ -252,7 +300,7 @@ def bart_beam_decode(model, weights, input_tokens, beam_width=2, min_len=3, max_
                     decoded_unique = decoded_t.unique(sorted=True)
                     if decoded_t.size(1) != decoded_unique.size(0):
                         decoded_unique_count = torch.stack([(decoded_t == d_u).sum() for d_u in decoded_unique])
-                        idx_2_block = (torch.abs((block_unigram-decoded_unique_count))<0.0001).nonzero()
+                        idx_2_block = (torch.abs((block_unigram - decoded_unique_count)) < 0.0001).nonzero()
                         if idx_2_block.size(0) != 0:
                             for indxes in idx_2_block[0]:
                                 idx_token = decoded_unique_count[indxes]
@@ -268,12 +316,9 @@ def bart_beam_decode(model, weights, input_tokens, beam_width=2, min_len=3, max_
 
         beam_sentences = []
         for score, n in sorted(endnodes, key=operator.itemgetter(0)):
-            if n.length < min_len:
-                print("!!!continue")
-                continue
-            sentence = model.decode(n.word_ids.squeeze(0))
-            print("decoded sentence: ", sentence)
+            sentence = bart.model.decode(n.word_ids.squeeze(0))
             beam_sentences.append(sentence)
         decoded_batch.append("#".join(beam_sentences))
     print("[DECODED BATCH]: ", decoded_batch)
     return decoded_batch
+
