@@ -222,6 +222,7 @@ def bart_beam_decode(bart: BartModel, gpt2: GPT2Model, weights, input_tokens, be
     assert min_len > 1
 
     decoded_batch = []
+
     softmax = torch.nn.LogSoftmax()
 
     for i in range(len(input_tokens)):
@@ -249,7 +250,6 @@ def bart_beam_decode(bart: BartModel, gpt2: GPT2Model, weights, input_tokens, be
                 if n.length < min_len:
                     continue
                 endnodes.append((score, n))
-                print("appended n: ", n.word_ids, n.length)
                 if len(endnodes) >= max_sentence_count:
                     break
                 else:
@@ -282,6 +282,7 @@ def bart_beam_decode(bart: BartModel, gpt2: GPT2Model, weights, input_tokens, be
                 logits = logits.eval()
             logits = torch.tensor(logits)
             logits = torch.squeeze(logits, 0)
+            converted_logits = convert_gpt_idxs_to_bart(logits, lprobs.size(1), gpt2.bart_gpt2_dict)
 
             converted_logits = convert_gpt_idxs_to_bart(logits, lprobs.size(1), gpt2.bart_gpt2_dict)
             converted_logits = softmax(converted_logits)
@@ -327,3 +328,4 @@ def bart_beam_decode(bart: BartModel, gpt2: GPT2Model, weights, input_tokens, be
         decoded_batch.append("#".join(beam_sentences))
     print("[DECODED BATCH]: ", decoded_batch)
     return decoded_batch
+

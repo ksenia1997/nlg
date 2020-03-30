@@ -1,7 +1,7 @@
 import torch
 from fairseq.models.bart import BARTModel
 from hub_interface import BartModel, GPT2Model
-from hub_interface import sample, bart_beam_decode, create_idf
+from hub_interface import sample, bart_beam_decode, create_idf, greedy_decoding
 
 bart = BARTModel.from_pretrained(
     'fairseq/checkpoints/',
@@ -13,7 +13,7 @@ bart.cuda()
 bart.eval()
 bart.half()
 count = 1
-bsz = 32
+bsz = 1
 
 SPECIFICITY = False
 COMBINE_MODELS = True
@@ -25,6 +25,8 @@ with open('../.data/test.source') as source, open('hypotheses/test_block_ngram.h
     bart_model = BartModel(bart)
     gpt2 = GPT2Model()
     for sline in source:
+        greedy_decoding(bart_model, gpt2, 20)
+        continue
         if count % bsz == 0:
             with torch.no_grad():
                 if COMBINE_MODELS:
@@ -50,3 +52,4 @@ with open('../.data/test.source') as source, open('hypotheses/test_block_ngram.h
         for hypothesis in hypotheses_batch:
             fout.write(hypothesis + '\n')
             fout.flush()
+
