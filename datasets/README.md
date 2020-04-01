@@ -16,7 +16,7 @@
  
 from http://parl.ai/downloads/personachat/personachat.tgz 
  
-####Files: 
+####Joke-dataset: 
 * reddit_jokes.json
 * wocka.json
 * stupidstuff.json
@@ -27,6 +27,13 @@ https://github.com/taivop/joke-dataset
 short jokes
 https://www.kaggle.com/abhinavmoudgil95/short-jokes
 
-poetic dataset
+####Poetic dataset:
 https://www.kaggle.com/johnhallman/complete-poetryfoundationorg-dataset#kaggle_poem_dataset.csv
+
+####Emotional dataset:
+https://www.kaggle.com/c/sa-emotions/data
+(emotional_data.csv)
+parsed to happy_data.txt (enthusiasm, surprise, love, fun, happiness)
+and to sad_data.txt (sadness, worry, hate, boredom, anger)
+
 /mnt/minerva1/nlp/projects/stylized_nlg
