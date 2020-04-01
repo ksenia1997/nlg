@@ -17,7 +17,8 @@ bsz = 1
 
 SPECIFICITY = False
 COMBINE_MODELS = True
-with open('../.data/test.source') as source, open('hypotheses/test_block_ngram.hypo', 'w') as fout:
+GREEDY_GPT2 = False
+with open('../.data/test.source') as source, open('hypotheses/test_shakespear.hypo', 'w') as fout:
     sline = source.readline().strip()
     slines = [sline]
     if SPECIFICITY:
@@ -25,14 +26,17 @@ with open('../.data/test.source') as source, open('hypotheses/test_block_ngram.h
     bart_model = BartModel(bart)
     gpt2 = GPT2Model()
     for sline in source:
-        greedy_decoding(bart_model, gpt2, 20)
-        continue
+        if GREEDY_GPT2:
+            dec = greedy_decoding(bart_model, gpt2, 10)
+            fout.write(dec + '\n')
+            fout.flush()
+            continue
         if count % bsz == 0:
             with torch.no_grad():
                 if COMBINE_MODELS:
-                    hypotheses_batch = bart_beam_decode(bart_model, gpt2, [0.3, 0.7], slines, beam_width=3, top_p=0,
-                                                        min_len=3, max_len=20, max_sentence_count=3, temperature=1,
-                                                        unk_penalty=0.001)
+                    hypotheses_batch = bart_beam_decode(bart_model, gpt2, [0.2, 0.8], slines, beam_width=2, top_p=0,
+                                                        min_len=3, max_len=15, max_sentence_count=4, temperature=1,
+                                                        unk_penalty=0.001, start_n=4)
                 if SPECIFICITY:
                     hypotheses_batch = sample(bart, idf_indexes, slines, beam=3, lenpen=2.0, max_len_b=100, min_len=5,
                                               no_repeat_ngram_size=2)
