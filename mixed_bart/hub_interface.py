@@ -10,6 +10,7 @@ from typing import List
 
 import gpt.src.encoder as gpt2_encoder
 import gpt.src.model as gpt2_model
+from gpt.src.load_dataset import load_dataset, Sampler
 import numpy as np
 import tensorflow as tf
 import torch
@@ -177,7 +178,7 @@ class GPT2Model(object):
         self.checkpoint_path = 'gpt/src/checkpoint/run1'
         with open(os.path.join('gpt/src/models', '117M', 'hparams.json')) as f:
             self.hyper_params.override_from_dict(json.load(f))
-
+        print("LEN VOCAB: ", len(self.bart_gpt2_dict))
 
 def greedy_decoding(bart: BartModel, gpt2: GPT2Model, max_len=100):
     softmax = torch.nn.LogSoftmax()
@@ -208,9 +209,9 @@ def greedy_decoding(bart: BartModel, gpt2: GPT2Model, max_len=100):
             start_token.append(gpt2_item)
     decoded_gpt2 = gpt2.encoder.decode(start_token)
     decoded = bart.model.decode(decoded_items.squeeze(0))
-    print("Decoded BART: ", decoded)
-    print("Decoded GPT2: ", decoded_gpt2)
-
+    #print("Decoded BART: ", decoded)
+    #print("Decoded GPT2: ", decoded_gpt2)
+    return decoded
 
 def bart_beam_decode(bart: BartModel, gpt2: GPT2Model, weights, input_tokens, beam_width=0, top_p=0.0, min_len=3,
                      max_len=100, max_sentence_count=2, temperature=1, unk_penalty=0.001, start_n=3,
@@ -221,13 +222,13 @@ def bart_beam_decode(bart: BartModel, gpt2: GPT2Model, weights, input_tokens, be
     assert min_len > 1
 
     decoded_batch = []
+    softmax = torch.nn.LogSoftmax(dim=2)
 
-    softmax = torch.nn.LogSoftmax()
     with tf.Session(graph=tf.Graph()) as sess:
         for i in range(len(input_tokens)):
             endnodes = []
             nodes = PriorityQueue()
-
+            print("input_tokens[i]: ", input_tokens[i])
             # BART
             bart.ensemble_model = EnsembleModel([bart.model.model])
             enc_tokens = [bart.model.encode(input_tokens[i])]
@@ -242,7 +243,6 @@ def bart_beam_decode(bart: BartModel, gpt2: GPT2Model, weights, input_tokens, be
             penalty = torch.zeros([1, 50264], dtype=torch.float64).to(device)
             node = BeamSearchNode(None, target_tokens, 0, 1, penalty, start_n-1)
             nodes.put((-node.eval(), node))
-
             while True:
                 score, n = nodes.get()
                 decoder_input = n.word_ids
@@ -299,6 +299,8 @@ def bart_beam_decode(bart: BartModel, gpt2: GPT2Model, weights, input_tokens, be
 
                 if beam_width > 0:
                     log_prob, indexes = torch.topk(concat_probs, beam_width)
+                    #print("words ids: ", bart.model.decode(n.word_ids.squeeze(0)))
+                    #print("candidates: ", bart.model.decode(indexes.squeeze(0)))
                 if top_p > 0.:
                     concat_probs = concat_probs.add(n.block_penalty)
                     sorted_logits, sorted_indices = torch.sort(concat_probs, descending=True)

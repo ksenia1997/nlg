@@ -8,3 +8,4 @@ __pycache__
 utils/__pycache__
 mixed_bart/data_bin/
 mixed_bart/gpt/
+mixed_bart/models/
