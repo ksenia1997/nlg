@@ -120,7 +120,7 @@ def evaluate(model, iterator, criterion):
                 trg = batch.source
                 output = model(trg)
 
-            # first output are 00s
+            # first output is 00s
             # the last iteration is not done, therefore we do not need to throw away the last output
 
             scores = output[1:].view(-1, output.shape[2])
@@ -131,13 +131,11 @@ def evaluate(model, iterator, criterion):
             scores = scores[pad_mask]
             targets = targets[pad_mask]
 
-            # trg shape shape should be [(sequence_len - 1) * batch_size]
-            # output shape should be [(sequence_len - 1) * batch_size, output_dim]
+            # trg shape shape is [(sequence_len - 1) * batch_size]
+            # output shape is [(sequence_len - 1) * batch_size, output_dim]
             loss = criterion(scores, targets)
 
             epoch_loss += loss.item()
-            # if (i + 1) % 100 == 0:
-            #    print("eval loss: ", epoch_loss / i)
     return epoch_loss / len(iterator)
 
 
@@ -204,19 +202,6 @@ def test_model(nlp, example, vocab, config, models, stylized_score_tensors):
 
 
 def run_model(config):
-    if config["prepare_data"] or config["data_BART"] or config["data_GPT2"]:
-        print("[Preparing data]")
-        prepare_data(config)
-        exit()
-
-    if config["prepare_dict"]:
-        print("[Preparing dictionary]")
-        prepare_dict(config)
-        exit()
-
-    if config["data_for_idf"]:
-        prepare_data(config)
-        exit()
 
     # Specify Fields in dataset
     data_fields = [('source', TEXT), ('target', TEXT)]

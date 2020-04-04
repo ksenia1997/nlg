@@ -12,6 +12,7 @@ class Encoder(nn.Module):
         self.dropout_rate = config['dropout_rate']
         self.vocab_size = len(vocab)
         self.device = device
+
         self.embedder = nn.Embedding(self.vocab_size, self.embedding_dim).to(device)
         self.lstm = nn.LSTM(
             self.embedding_dim,
@@ -26,8 +27,8 @@ class Encoder(nn.Module):
             use_padded = True
             input_lengths = input_sequence[1]
             input_sequence = input_sequence[0]
-        embeds_q = self.embedder(input_sequence).to(self.device)
-        embedded = self.dropout(embeds_q).to(self.device)
+        embeds_input = self.embedder(input_sequence).to(self.device)
+        embedded = self.dropout(embeds_input).to(self.device)
         if use_padded:
             inp_packed = pack_padded_sequence(embedded, input_lengths, batch_first=False, enforce_sorted=False)
             outputs, (hidden, cell) = self.lstm(inp_packed)

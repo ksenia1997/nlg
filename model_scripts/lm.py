@@ -17,15 +17,14 @@ class LM(nn.Module):
         tensorboard_log_dir = './tensorboard-logs/{}/'.format(experiment_name)
         self.tb = SummaryWriter(tensorboard_log_dir)
 
-    def forward(self, trg, hidden=None, cell=None, teacher_forcing_ratio=0.1):
+    def forward(self, trg, hidden=None, cell=None, teacher_forcing_ratio=0.5):
         max_len, batch_size = trg[0].size()
         decoder_input = trg[0][0, :]
-        trg_vocab_size = self.decoder.output_dim
-        outputs = torch.zeros(max_len, batch_size, trg_vocab_size).to(self.device)
+        outputs = torch.zeros(max_len, batch_size, self.decoder.output_dim).to(self.device)
         for t in range(1, max_len):
             output, hidden, cell = self.decoder(decoder_input, hidden, cell)
             outputs[t] = output
-            use_teacher_force = random.random() > teacher_forcing_ratio
+            use_teacher_force = random.random() < teacher_forcing_ratio
             top1 = output.argmax(dim=1)
             decoder_input = trg[0][t] if use_teacher_force else top1
         return outputs.to(self.device)

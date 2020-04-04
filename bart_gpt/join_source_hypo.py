@@ -15,8 +15,8 @@ if __name__ == '__main__':
 
     lines = []
     # args.dataset_source = .data/test.source
-    # args.dataset_hypotheses = mixed_bart/test_poetic.hypo
-    # save_file = mixed_bart/bart_gpt2_poetic.csv
+    # args.dataset_hypotheses = bart_gpt/test_poetic.hypo
+    # save_file = bart_gpt/bart_gpt2_poetic.csv
     with open(args.dataset_source, "r") as source, open(args.dataset_hypotheses, "r") as hypo:
         count = 0
         hypo_data = hypo.readlines()

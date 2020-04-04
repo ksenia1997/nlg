@@ -10,7 +10,6 @@ from typing import List
 
 import gpt.src.encoder as gpt2_encoder
 import gpt.src.model as gpt2_model
-from gpt.src.load_dataset import load_dataset, Sampler
 import numpy as np
 import tensorflow as tf
 import torch
@@ -63,7 +62,7 @@ def convert_gpt_idxs_to_bart(logp, bart_vocab_size, bart_tensor_with_gpt2_idxs):
         if i in bart_tensor_with_gpt2_idxs:
             gpt2_idx = bart_tensor_with_gpt2_idxs[i]
         if gpt2_idx == 50257 or gpt2_idx is None:
-            converted_logp.append(0)
+            converted_logp.append(-math.inf)
         else:
             converted_logp.append(logp[0][gpt2_idx])
     return torch.tensor(converted_logp, device=device).unsqueeze(0)
@@ -140,7 +139,7 @@ def generate(model, idf_matrix, tokens: List[torch.LongTensor], beam: int = 5, v
 
 
 class BeamSearchNode(object):
-    def __init__(self, previous_node, word_ids, log_prob, length, penalty, skip_n):
+    def __init__(self, previous_node, word_ids, log_prob, length, penalty, skip_n, prev_gpt2):
         '''
         :param previousNode:
         :param wordId:
@@ -153,6 +152,7 @@ class BeamSearchNode(object):
         self.length = length
         self.block_penalty = penalty
         self.skip_n = skip_n
+        self.prev_gpt2 = prev_gpt2
 
     def eval(self, alpha=1.0):
         reward = np.random.uniform(0.1, 10 ** (-20))
@@ -176,20 +176,25 @@ class GPT2Model(object):
         self.eos = '<|endoftext|>'
         self.bart_gpt2_dict = get_bart_tensor_with_gpt2_idxs()
         self.checkpoint_path = 'gpt/src/checkpoint/run1'
-        with open(os.path.join('gpt/src/models', '117M', 'hparams.json')) as f:
+        with open(os.path.join('models', '117M', 'hparams.json')) as f:
             self.hyper_params.override_from_dict(json.load(f))
-        print("LEN VOCAB: ", len(self.bart_gpt2_dict))
+
 
 def greedy_decoding(bart: BartModel, gpt2: GPT2Model, max_len=100):
     softmax = torch.nn.LogSoftmax()
     start_token = [gpt2.encoder.encoder[gpt2.eos]]
     decoded_items = torch.tensor((), dtype=torch.long)
     decoded_items.new(1, 1).long().fill_(bart.eos)
+    past = None
     with tf.Session(graph=tf.Graph()) as sess:
         for i in range(max_len):
             context = tf.convert_to_tensor([start_token])
-            lm_output = gpt2_model.model(hparams=gpt2.hyper_params, X=context, past=None, reuse=tf.AUTO_REUSE)
+            lm_output = gpt2_model.model(hparams=gpt2.hyper_params, X=context, past=past, reuse=tf.AUTO_REUSE)
             logits = lm_output['logits'][:, :, :gpt2.hyper_params.n_vocab]
+            if past is None:
+                past = lm_output['present']
+            else:
+                past = tf.concat([past, lm_output['present']], axis=-2)
             saver = tf.train.Saver()
             ckpt = tf.train.latest_checkpoint(gpt2.checkpoint_path)
             saver.restore(sess, ckpt)
@@ -209,22 +214,25 @@ def greedy_decoding(bart: BartModel, gpt2: GPT2Model, max_len=100):
             start_token.append(gpt2_item)
     decoded_gpt2 = gpt2.encoder.decode(start_token)
     decoded = bart.model.decode(decoded_items.squeeze(0))
-    #print("Decoded BART: ", decoded)
-    #print("Decoded GPT2: ", decoded_gpt2)
+    # print("Decoded BART: ", decoded)
+    # print("Decoded GPT2: ", decoded_gpt2)
     return decoded
+
 
 def bart_beam_decode(bart: BartModel, gpt2: GPT2Model, weights, input_tokens, beam_width=0, top_p=0.0, min_len=3,
                      max_len=100, max_sentence_count=2, temperature=1, unk_penalty=0.001, start_n=3,
                      block_unigram=None):
     assert max_len > 2
     assert max_sentence_count > 1
-    # assert beam_width > 2
     assert min_len > 1
+    assert bool(beam_width) != bool(top_p), "Set beam width or top p"
 
     decoded_batch = []
-    softmax = torch.nn.LogSoftmax(dim=2)
+    log_softmax = torch.nn.LogSoftmax(dim=1)
 
     with tf.Session(graph=tf.Graph()) as sess:
+        init = tf.global_variables_initializer()
+        sess.run(init)
         for i in range(len(input_tokens)):
             endnodes = []
             nodes = PriorityQueue()
@@ -232,7 +240,7 @@ def bart_beam_decode(bart: BartModel, gpt2: GPT2Model, weights, input_tokens, be
             # BART
             bart.ensemble_model = EnsembleModel([bart.model.model])
             enc_tokens = [bart.model.encode(input_tokens[i])]
-            sample = bart.model._build_sample(enc_tokens)
+            sample = bart.model.build_sample(enc_tokens)
             encoder_input = {
                 k: v for k, v in sample['net_input'].items()
                 if k != 'prev_output_tokens'
@@ -240,8 +248,8 @@ def bart_beam_decode(bart: BartModel, gpt2: GPT2Model, weights, input_tokens, be
             src_tokens = encoder_input['src_tokens']
             encoder_outs = bart.ensemble_model.forward_encoder(encoder_input)
             target_tokens = src_tokens.new(1, 1).long().fill_(bart.eos)
-            penalty = torch.zeros([1, 50264], dtype=torch.float64).to(device)
-            node = BeamSearchNode(None, target_tokens, 0, 1, penalty, start_n-1)
+            block_penalty = torch.zeros([1, 50264], dtype=torch.float64).to(device)
+            node = BeamSearchNode(None, target_tokens, 0, 1, block_penalty, start_n - 1, None)
             nodes.put((-node.eval(), node))
             while True:
                 score, n = nodes.get()
@@ -275,39 +283,43 @@ def bart_beam_decode(bart: BartModel, gpt2: GPT2Model, weights, input_tokens, be
                             else:
                                 start_token.append(gpt2_item)
                         start_token = [start_token]
-
                     context = tf.convert_to_tensor(start_token)
-                    lm_output = gpt2_model.model(hparams=gpt2.hyper_params, X=context, past=None, reuse=tf.AUTO_REUSE)
+                    lm_output = gpt2_model.model(hparams=gpt2.hyper_params, X=context, past=n.prev_gpt2, reuse=tf.AUTO_REUSE)
                     logits = lm_output['logits'][:, :, :gpt2.hyper_params.n_vocab]
+                    if n.prev_gpt2 is None:
+                        n.prev_gpt2 = lm_output['present']
+                    else:
+                        n.prev_gpt2 = tf.concat([n.prev_gpt2, lm_output['present']], axis=-2)
 
                     saver = tf.train.Saver()
                     ckpt = tf.train.latest_checkpoint(gpt2.checkpoint_path)
                     saver.restore(sess, ckpt)
 
                     # converting tf.Tensor to torch.tensor
-                    init = tf.global_variables_initializer()
-
-                    sess.run(init)
                     logits = logits.eval()
                     logits = torch.tensor(logits)
-                    logits = torch.squeeze(logits, 0)
+                    logits = logits[:, -1, :]
 
                     converted_logits = convert_gpt_idxs_to_bart(logits, lprobs_bart.size(1), gpt2.bart_gpt2_dict)
-                    lprobs_gpt = softmax(converted_logits)
+                    lprobs_gpt = log_softmax(converted_logits)
 
                     concat_probs = concat_probs.add(lprobs_gpt * weights[1])
 
                 if beam_width > 0:
                     log_prob, indexes = torch.topk(concat_probs, beam_width)
-                    #print("words ids: ", bart.model.decode(n.word_ids.squeeze(0)))
-                    #print("candidates: ", bart.model.decode(indexes.squeeze(0)))
+                    # print("words ids: ", bart.model.decode(n.word_ids.squeeze(0)))
+                    # print("candidates: ", bart.model.decode(indexes.squeeze(0)))
                 if top_p > 0.:
                     concat_probs = concat_probs.add(n.block_penalty)
                     sorted_logits, sorted_indices = torch.sort(concat_probs, descending=True)
-                    sigmoid_logs = 1 / (1 + torch.exp(-sorted_logits))
-                    sorted_indices_to_remove = sigmoid_logs > top_p
-
-                    print("sorted indicies to remove: ", sorted_indices_to_remove)
+                    print("sorted logits: ", sorted_logits)
+                    print("sorted indicies: ", sorted_indices)
+                    sigmoid_logs = 1 / (1 + torch.exp(-sorted_logits)) + 0.5
+                    print("sigmoid: ", sigmoid_logs)
+                    sorted_indices_top_p = sigmoid_logs > top_p
+                    print("sorted indicies to remove: ", sorted_indices_top_p)
+                    indexes = sorted_indices[sorted_indices_top_p]
+                    log_prob = sorted_logits[sorted_indices_top_p]
                 node_penalty = n.block_penalty.clone()
                 for new_k in range(beam_width):
                     decoded_item = indexes[0][new_k].unsqueeze(0).unsqueeze(0)
@@ -322,7 +334,7 @@ def bart_beam_decode(bart: BartModel, gpt2: GPT2Model, weights, input_tokens, be
                                     idx_token = decoded_unique_count[indxes]
                                     node_penalty[0][idx_token] -= 0.001
                     log_p = log_prob[0][new_k].item()
-                    node = BeamSearchNode(n, decoded_t, n.logp + log_p, n.length + 1, node_penalty, n.skip_n)
+                    node = BeamSearchNode(n, decoded_t, n.logp + log_p, n.length + 1, node_penalty, n.skip_n, n.prev_gpt2)
                     score = -node.eval()
                     nodes.put((score, node))
 

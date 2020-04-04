@@ -33,9 +33,11 @@ class Seq2Seq(nn.Module):
     def forward(self, src, trg, pad_token):
         # src [seq_len, batch_size]
         # trg [seq_len, batch_size]
+        print("src seq2seq: ", src.size())
+        print("trg seq2seq: ", trg.size())
+
         max_len, batch_size = trg[0].size()
-        trg_vocab_size = self.decoder.output_dim
-        outputs = torch.zeros(max_len, batch_size, trg_vocab_size).to(self.device)
+        outputs = torch.zeros(max_len, batch_size, self.decoder.output_dim).to(self.device)
         enc_output, hidden, cell = self.encoder(src, pad_token)
         enc_output = enc_output.permute(1, 0, 2)
         decoder_h = (hidden, cell)
@@ -47,7 +49,7 @@ class Seq2Seq(nn.Module):
             else:
                 output, hidden, cell = self.decoder(decoder_input, hidden, cell)
             outputs[t] = output
-            use_teacher_force = random.random() > self.teacher_forcing_ratio
+            use_teacher_force = random.random() < self.teacher_forcing_ratio
             top1 = output.argmax(dim=1)
             decoder_input = trg[0][t] if use_teacher_force else top1
             # print("NEXT: " + " ".join([TEXT.vocab.itos[x] for x in decoder_input.tolist()]))
