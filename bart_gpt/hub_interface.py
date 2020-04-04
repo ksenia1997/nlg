@@ -15,7 +15,7 @@ from fairseq import search
 
 import gpt.src.encoder as gpt2_encoder
 import gpt.src.model as gpt2_model
-from gpt.src.sample import sample_sequence
+from gpt.src.sample import sample_sequence, top_k_logits
 from sequence_generator import EnsembleModel
 from sequence_generator import SequenceGenerator
 
@@ -182,31 +182,31 @@ class GPT2Model(object):
             self.hyper_params.override_from_dict(json.load(f))
 
 
-def greedy_decoding(bart: BartModel, gpt2: GPT2Model, max_len=100):
-    start_token = [gpt2.encoder.encoder[gpt2.eos]]
-    decoded_items = torch.tensor((), dtype=torch.long)
-    decoded_items.new(1, 1).long().fill_(bart.eos)
+def greedy_decoding(gpt2: GPT2Model, max_len=100):
+    start_token = gpt2.encoder.encoder[gpt2.eos]
     with tf.Session(graph=tf.Graph()) as sess:
         init = tf.global_variables_initializer()
         sess.run(init)
-        past = None
+
+        context = tf.fill([1, 1], start_token)
+        output = context
+        context_output = gpt2_model.model(hparams=gpt2.hyper_params, X=context[:, :-1], past=None,
+                                          reuse=tf.AUTO_REUSE)
+        past = context_output['present']
         for i in range(max_len):
-            context = tf.convert_to_tensor([start_token])
             lm_output = gpt2_model.model(hparams=gpt2.hyper_params, X=context, past=past, reuse=tf.AUTO_REUSE)
             logits = lm_output['logits'][:, :, :gpt2.hyper_params.n_vocab]
-            values, idx = tf.nn.top_k(logits, k=1)
-            s = tf.Session()
-            s.run(tf.global_variables_initializer())
-            index = s.run(idx)
-            if past is None:
-                past = lm_output['present']
-            else:
-                past = tf.concat([past, lm_output['present']], axis=-2)
+            logits = logits[:, -1, :]
+            past = tf.concat([past, lm_output['present']], axis=-2)
+            logits = top_k_logits(logits, k=3)
+            context = tf.multinomial(logits, num_samples=1, output_dtype=tf.int32)
+            output = tf.concat([output, context], axis=1)
             saver = tf.train.Saver()
             ckpt = tf.train.latest_checkpoint(gpt2.checkpoint_path)
             saver.restore(sess, ckpt)
-            start_token.append(index[0][0][0])
-    decoded_gpt2 = gpt2.encoder.decode(start_token)
+        out = sess.run(output)
+        print("OUT: ", out)
+    decoded_gpt2 = gpt2.encoder.decode(out[0])
     print("Decoded GPT2: ", decoded_gpt2)
     return decoded_gpt2
 
@@ -349,6 +349,7 @@ def bart_gpt2_sample(bart: BartModel, gpt2: GPT2Model, weights, input_tokens, be
     with tf.Session(graph=tf.Graph()) as sess:
         init = tf.global_variables_initializer()
         sess.run(init)
+
         for i in range(len(input_tokens)):
             endnodes = []
             nodes = PriorityQueue()
@@ -365,7 +366,12 @@ def bart_gpt2_sample(bart: BartModel, gpt2: GPT2Model, weights, input_tokens, be
             encoder_outs = bart.ensemble_model.forward_encoder(encoder_input)
             target_tokens = src_tokens.new(1, 1).long().fill_(bart.eos)
             block_penalty = torch.zeros([1, 50264], dtype=torch.float64).to(device)
-            node = BeamSearchNode(None, target_tokens, 0, 1, block_penalty, start_n-1, None)
+            #GPT2
+            start_gpt = gpt2.encoder.encoder[gpt2.eos]
+            context = tf.fill([1, 1], start_gpt)
+            context_out = gpt2_model.model(hparams=gpt2.hyper_params, X=context[:, :-1], past=None, reuse=tf.AUTO_REUSE)
+
+            node = BeamSearchNode(None, target_tokens, 0, 1, block_penalty, start_n - 1, context_out['present'])
             nodes.put((-node.eval(), node))
             while True:
                 score, n = nodes.get()
@@ -387,26 +393,25 @@ def bart_gpt2_sample(bart: BartModel, gpt2: GPT2Model, weights, input_tokens, be
                 if n.skip_n > 0:
                     n.skip_n -= 1
                 else:
-                    if n.prev_node is None:
-                        start_token = [[gpt2.encoder.encoder[gpt2.eos]]]
-                    else:
-                        start_token = []
-                        for item in decoder_input.squeeze(0):
-                            gpt2_item = gpt2.bart_gpt2_dict[item]
-                            if gpt2_item == 50257:
-                                start_token.append(0)
-                            else:
-                                start_token.append(gpt2_item)
-                        start_token = [start_token]
-                    context = tf.convert_to_tensor(start_token)
+                    # start_token = [start_gpt]
+                    # for item in decoder_input.squeeze(0):
+                    #     gpt2_item = gpt2.bart_gpt2_dict[item]
+                    #     if gpt2_item == 50257:
+                    #         start_token.append(0)
+                    #     else:
+                    #         start_token.append(gpt2_item)
+                    #     start_token = [start_token]
+                    # context = tf.convert_to_tensor(start_token)
+                    gpt_item = gpt2.bart_gpt2_dict[decoder_input[0][-1]]
+                    context = tf.convert_to_tensor([[gpt_item]])
                     lm_output = gpt2_model.model(hparams=gpt2.hyper_params, X=context, past=n.prev_gpt2,
                                                  reuse=tf.AUTO_REUSE)
                     logits = lm_output['logits'][:, :, :gpt2.hyper_params.n_vocab]
-                    if n.prev_gpt2 is None:
-                        n.prev_gpt2 = lm_output['present']
-                    else:
-                        n.prev_gpt2 = tf.concat([n.prev_gpt2, lm_output['present']], axis=-2)
-
+                    logits = logits[:, -1, :]
+                    n.prev_gpt2 = tf.concat([n.prev_gpt2, lm_output['present']], axis=-2)
+                    #logits = top_k_logits(logits, k=3)
+                    #context = tf.multinomial(logits, num_samples=1, output_dtype=tf.int32)
+                    #output = tf.concat([output, context], axis=1)
                     saver = tf.train.Saver()
                     ckpt = tf.train.latest_checkpoint(gpt2.checkpoint_path)
                     saver.restore(sess, ckpt)
@@ -414,7 +419,6 @@ def bart_gpt2_sample(bart: BartModel, gpt2: GPT2Model, weights, input_tokens, be
                     # converting tf.Tensor to torch.tensor
                     logits = logits.eval()
                     logits = torch.tensor(logits)
-                    logits = logits[:, -1, :]
 
                     converted_logits = convert_gpt_idxs_to_bart(logits, lprobs_bart.size(1), gpt2.bart_gpt2_dict)
                     lprobs_gpt = log_softmax(converted_logits)
@@ -447,7 +451,7 @@ def bart_gpt2_sample(bart: BartModel, gpt2: GPT2Model, weights, input_tokens, be
                                     idx_token = decoded_unique_count[indxes]
                                     node_penalty[0][idx_token] -= 0.01
                     log_p = log_prob[0][new_k].item()
-                    node = BeamSearchNode(n, decoded_t, n.logp + log_p, n.length + 1, node_penalty, n.skip_n-1,
+                    node = BeamSearchNode(n, decoded_t, n.logp + log_p, n.length + 1, node_penalty, n.skip_n - 1,
                                           n.prev_gpt2)
                     score = -node.eval()
                     nodes.put((score, node))
