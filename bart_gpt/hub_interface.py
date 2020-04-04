@@ -211,7 +211,7 @@ def greedy_decoding(gpt2: GPT2Model, max_len=100):
     return decoded_gpt2
 
 
-def gpt_sample(gpt2: GPT2Model, seed=None, top_k=5, temperature=1, batch_size=8, length=10000):
+def gpt_sample(gpt2: GPT2Model, seed=None, top_k=3, temperature=1, batch_size=2, length=20):
     with tf.Session(graph=tf.Graph()) as sess:
         np.random.seed(seed)
         tf.set_random_seed(seed)

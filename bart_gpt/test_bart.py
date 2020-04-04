@@ -17,9 +17,9 @@ count = 1
 bsz = 1
 
 SPECIFICITY = False
-COMBINE_MODELS = True
-GREEDY_GPT2 = False
-with open('../.data/test.source') as source, open('hypotheses/test_fixed_sampling.hypo', 'w') as fout:
+COMBINE_MODELS = False
+GREEDY_GPT2 = True
+with open('../.data/test.source') as source, open('hypotheses/test_greedy_decoding.hypo', 'w') as fout:
     sline = source.readline().strip()
     slines = [sline]
     if SPECIFICITY:
