@@ -16,9 +16,9 @@ count = 1
 bsz = 1
 
 SPECIFICITY = False
-COMBINE_MODELS = True
-GREEDY_GPT2 = False
-with open('../.data/test.source') as source, open('hypotheses/test_fixed_sampling.hypo', 'w') as fout:
+COMBINE_MODELS = False
+GREEDY_GPT2 = True
+with open('../.data/test.source') as source, open('hypotheses/test_greedy_decoding.hypo', 'w') as fout:
     sline = source.readline().strip()
     slines = [sline]
     if SPECIFICITY:
@@ -30,7 +30,7 @@ with open('../.data/test.source') as source, open('hypotheses/test_fixed_samplin
             #gpt_sample(gpt2)
             #exit()
             #dec = gpt_beam_decode(bart_model, gpt2, beam_width=2, top_p=0, min_len=3, max_len=15, max_sentence_count=4)
-            dec = greedy_decoding(bart_model, gpt2, 10)
+            dec = greedy_decoding(gpt2, 30)
             fout.write(dec + '\n')
             fout.flush()
             continue

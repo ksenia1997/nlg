@@ -15,7 +15,7 @@ from fairseq import search
 
 import gpt.src.encoder as gpt2_encoder
 import gpt.src.model as gpt2_model
-from gpt.src.sample import sample_sequence
+from gpt.src.sample import sample_sequence, top_k_logits
 from sequence_generator import EnsembleModel
 from sequence_generator import SequenceGenerator
 
@@ -182,36 +182,40 @@ class GPT2Model(object):
             self.hyper_params.override_from_dict(json.load(f))
 
 
-def greedy_decoding(bart: BartModel, gpt2: GPT2Model, max_len=100):
-    start_token = [gpt2.encoder.encoder[gpt2.eos]]
-    decoded_items = torch.tensor((), dtype=torch.long)
-    decoded_items.new(1, 1).long().fill_(bart.eos)
+def greedy_decoding(gpt2: GPT2Model, max_len=10):
+    start_token = gpt2.encoder.encoder[gpt2.eos]
+    # context = tf.fill([1, 1], start_token)
+    # output = context
     with tf.Session(graph=tf.Graph()) as sess:
         init = tf.global_variables_initializer()
         sess.run(init)
-        past = None
+        #with tf.name_scope('sample_sequence'):
+        context = tf.fill([1, 1], start_token)
+        output = context
+        #print("context: ", context, context[:, :-1])
+        context_output = gpt2_model.model(hparams=gpt2.hyper_params, X=context[:, :-1], past=None, reuse=tf.AUTO_REUSE)
+        #context_output['logits'] = context_output['logits'][:, :, :gpt2.hyper_params.n_vocab]
+        past = context_output['present']
         for i in range(max_len):
-            context = tf.convert_to_tensor([start_token])
+            print("context before GPT: ", context)
             lm_output = gpt2_model.model(hparams=gpt2.hyper_params, X=context, past=past, reuse=tf.AUTO_REUSE)
             logits = lm_output['logits'][:, :, :gpt2.hyper_params.n_vocab]
-            values, idx = tf.nn.top_k(logits, k=1)
-            s = tf.Session()
-            s.run(tf.global_variables_initializer())
-            index = s.run(idx)
-            if past is None:
-                past = lm_output['present']
-            else:
-                past = tf.concat([past, lm_output['present']], axis=-2)
+            logits = logits[:, -1, :]
+            past = tf.concat([past, lm_output['present']], axis=-2)
+            logits = top_k_logits(logits, k=3)
+            context = tf.multinomial(logits, num_samples=1, output_dtype=tf.int32)
+            output = tf.concat([output, context], axis=1)
             saver = tf.train.Saver()
             ckpt = tf.train.latest_checkpoint(gpt2.checkpoint_path)
             saver.restore(sess, ckpt)
-            start_token.append(index[0][0][0])
-    decoded_gpt2 = gpt2.encoder.decode(start_token)
+        out = sess.run(output)
+        print("OUT: ", out)
+    decoded_gpt2 = gpt2.encoder.decode(out[0])
     print("Decoded GPT2: ", decoded_gpt2)
     return decoded_gpt2
 
 
-def gpt_sample(gpt2: GPT2Model, seed=None, top_k=5, temperature=1, batch_size=8, length=10000):
+def gpt_sample(gpt2: GPT2Model, seed=None, top_k=3, temperature=1, batch_size=2, length=20):
     with tf.Session(graph=tf.Graph()) as sess:
         np.random.seed(seed)
         tf.set_random_seed(seed)
