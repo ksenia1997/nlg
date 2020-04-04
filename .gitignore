@@ -3,9 +3,10 @@
 .ipynb_checkpoints/seq2seq-checkpoint.ipynb
 .vector_cache
 .data/
-bart_gpt/fairseq
 __pycache__
 utils/__pycache__
+bart_gpt/fairseq
 bart_gpt/data_bin/
 bart_gpt/gpt/
 bart_gpt/models/
+bart_gpt/checkpoint/

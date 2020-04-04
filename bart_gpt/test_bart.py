@@ -1,7 +1,7 @@
 import torch
 from fairseq.models.bart import BARTModel
 from hub_interface import BartModel, GPT2Model
-from hub_interface import sample, bart_beam_decode, create_idf, greedy_decoding, gpt_beam_decode, gpt_sample
+from hub_interface import sample, bart_gpt2_sample, create_idf, greedy_decoding, gpt_beam_decode, gpt_sample
 
 bart = BARTModel.from_pretrained(
     'fairseq/checkpoints/',
@@ -37,7 +37,7 @@ with open('../.data/test.source') as source, open('hypotheses/test_fixed_samplin
         if count % bsz == 0:
             with torch.no_grad():
                 if COMBINE_MODELS:
-                    hypotheses_batch = bart_beam_decode(bart_model, gpt2, [0.2, 0.8], slines, beam_width=2, top_p=0,
+                    hypotheses_batch = bart_gpt2_sample(bart_model, gpt2, [0.2, 0.8], slines, beam_width=2, top_p=0,
                                                         min_len=3, max_len=30, max_sentence_count=4, temperature=1,
                                                         unk_penalty=0.001, start_n=4)
                 if SPECIFICITY:
