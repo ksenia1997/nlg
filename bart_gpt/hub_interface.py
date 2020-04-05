@@ -357,7 +357,7 @@ def bart_gpt2_sample(bart: BartModel, gpt2: GPT2Model, weights, input_tokens, be
             # BART
             bart.ensemble_model = EnsembleModel([bart.model.model])
             enc_tokens = [bart.model.encode(input_tokens[i])]
-            sample = bart.model.build_sample(enc_tokens)
+            sample = bart.model._build_sample(enc_tokens)
             encoder_input = {
                 k: v for k, v in sample['net_input'].items()
                 if k != 'prev_output_tokens'
@@ -373,6 +373,7 @@ def bart_gpt2_sample(bart: BartModel, gpt2: GPT2Model, weights, input_tokens, be
 
             node = BeamSearchNode(None, target_tokens, 0, 1, block_penalty, start_n - 1, context_out['present'])
             nodes.put((-node.eval(), node))
+            counter = 0
             while True:
                 score, n = nodes.get()
                 decoder_input = n.word_ids
@@ -393,16 +394,9 @@ def bart_gpt2_sample(bart: BartModel, gpt2: GPT2Model, weights, input_tokens, be
                 if n.skip_n > 0:
                     n.skip_n -= 1
                 else:
-                    # start_token = [start_gpt]
-                    # for item in decoder_input.squeeze(0):
-                    #     gpt2_item = gpt2.bart_gpt2_dict[item]
-                    #     if gpt2_item == 50257:
-                    #         start_token.append(0)
-                    #     else:
-                    #         start_token.append(gpt2_item)
-                    #     start_token = [start_token]
-                    # context = tf.convert_to_tensor(start_token)
                     gpt_item = gpt2.bart_gpt2_dict[decoder_input[0][-1]]
+                    if gpt_item == 50257:
+                        gpt_item = 0
                     context = tf.convert_to_tensor([[gpt_item]])
                     lm_output = gpt2_model.model(hparams=gpt2.hyper_params, X=context, past=n.prev_gpt2,
                                                  reuse=tf.AUTO_REUSE)
@@ -426,10 +420,12 @@ def bart_gpt2_sample(bart: BartModel, gpt2: GPT2Model, weights, input_tokens, be
 
                 node_penalty = n.block_penalty.clone()
                 if beam_width > 0:
+                    counter += 1
+                    if counter % 3 == 0:
+                        concat_probs = lprobs_gpt
+                    else:
+                        concat_probs = lprobs_bart
                     log_prob, indexes = torch.topk(concat_probs, beam_width)
-                    print("indexs: ", indexes.size())
-                    # print("words ids: ", bart.model.decode(n.word_ids.squeeze(0)))
-                    # print("candidates: ", bart.model.decode(indexes.squeeze(0)))
                 if top_p > 0.:
                     concat_probs = concat_probs.add(n.block_penalty)
                     sorted_logits, sorted_indices = torch.sort(concat_probs, descending=True)
