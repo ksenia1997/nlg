@@ -30,7 +30,6 @@ with open('../.data/test.source') as source, open('hypotheses/test_greedy_decodi
         if GREEDY_GPT2:
             # gpt_sample(gpt2)
             # exit()
-            # dec = gpt_beam_decode(bart_model, gpt2, beam_width=2, top_p=0, min_len=3, max_len=15, max_sentence_count=4)
             dec = greedy_decoding(gpt2, 10)
             fout.write(dec + '\n')
             fout.flush()
