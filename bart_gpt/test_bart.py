@@ -17,9 +17,9 @@ count = 1
 bsz = 1
 
 SPECIFICITY = False
-COMBINE_MODELS = False
-GREEDY_GPT2 = True
-with open('../.data/test.source') as source, open('hypotheses/test_greedy_decoding.hypo', 'w') as fout:
+COMBINE_MODELS = True
+GREEDY_GPT2 = False
+with open('../.data/test.source') as source, open('hypotheses/test_shakespear_switch_counter_3.hypo', 'w') as fout:
     sline = source.readline().strip()
     slines = [sline]
     if SPECIFICITY:
@@ -37,9 +37,9 @@ with open('../.data/test.source') as source, open('hypotheses/test_greedy_decodi
         if count % bsz == 0:
             with torch.no_grad():
                 if COMBINE_MODELS:
-                    hypotheses_batch = bart_gpt2_sample(bart_model, gpt2, [0.2, 0.8], slines, beam_width=2, top_p=0,
-                                                        min_len=3, max_len=30, max_sentence_count=4, temperature=1,
-                                                        unk_penalty=0.001, start_n=4)
+                    hypotheses_batch = bart_gpt2_sample(bart_model, gpt2, [0.1, 0.9], slines, beam_width=2, top_p=0,
+                                                        min_len=3, max_len=15, max_sentence_count=4, temperature=1,
+                                                        unk_penalty=0.001, start_n=1)
                 if SPECIFICITY:
                     hypotheses_batch = sample(bart, idf_indexes, slines, beam=3, lenpen=2.0, max_len_b=100, min_len=5,
                                               no_repeat_ngram_size=2)

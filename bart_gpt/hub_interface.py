@@ -289,6 +289,8 @@ def bart_gpt2_sample(bart: BartModel, gpt2: GPT2Model, weights, input_tokens, be
                     n.skip_n -= 1
                 else:
                     gpt_item = gpt2.bart_gpt2_dict[decoder_input[0][-1]]
+                    if gpt_item == 50257:
+                        gpt_item = 0
                     context = tf.convert_to_tensor([[gpt_item]])
                     lm_output = gpt2_model.model(hparams=gpt2.hyper_params, X=context, past=n.prev_gpt2,
                                                  reuse=tf.AUTO_REUSE)
@@ -316,8 +318,6 @@ def bart_gpt2_sample(bart: BartModel, gpt2: GPT2Model, weights, input_tokens, be
                     else:
                         concat_probs = lprobs_bart
                     log_prob, indexes = torch.topk(concat_probs, beam_width)
-                    # print("words ids: ", bart.model.decode(n.word_ids.squeeze(0)))
-                    # print("candidates: ", bart.model.decode(indexes.squeeze(0)))
                 if top_p > 0.:
                     concat_probs = concat_probs.add(n.block_penalty)
                     sorted_logits, sorted_indices = torch.sort(concat_probs, descending=True)
