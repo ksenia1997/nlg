@@ -421,7 +421,7 @@ def bart_gpt2_sample(bart: BartModel, gpt2: GPT2Model, weights, input_tokens, be
                 node_penalty = n.block_penalty.clone()
                 if beam_width > 0:
                     counter += 1
-                    if counter % 3 == 0:
+                    if counter % 3 == 0 or counter % 4 == 0 :
                         concat_probs = lprobs_gpt
                     else:
                         concat_probs = lprobs_bart
@@ -459,8 +459,9 @@ def bart_gpt2_sample(bart: BartModel, gpt2: GPT2Model, weights, input_tokens, be
             beam_sentences = []
             for score, n in sorted(endnodes, key=operator.itemgetter(0)):
                 sentence = bart.model.decode(n.word_ids.squeeze(0))
+                sentence = sentence.replace('\n',' ')
                 print("decoded sentence: ", sentence)
                 beam_sentences.append(sentence)
-            decoded_batch.append("#".join(beam_sentences))
+            decoded_batch.append(" \# ".join(beam_sentences))
     print("[DECODED BATCH]: ", decoded_batch)
     return decoded_batch
