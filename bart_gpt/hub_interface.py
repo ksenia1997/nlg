@@ -13,7 +13,7 @@ import tensorflow as tf
 import torch
 import torch.nn.functional as F
 from fairseq import search
-
+import torch.nn.functional as F
 import gpt.src.encoder as gpt2_encoder
 import gpt.src.model as gpt2_model
 from gpt.src.sample import sample_sequence, top_k_logits
@@ -219,7 +219,7 @@ class GPT2Model(object):
         self.hyper_params = gpt2_model.default_hparams()
         self.eos = '<|endoftext|>'
         self.bart_gpt2_dict = get_bart_tensor_with_gpt2_idxs()
-        self.checkpoint_path = 'checkpoint/run1'
+        self.checkpoint_path = '../../../checkpoints_gpt2_sst_negative'
         with open(os.path.join('models', '117M', 'hparams.json')) as f:
             self.hyper_params.override_from_dict(json.load(f))
 
@@ -361,13 +361,17 @@ def bart_gpt2_sample(bart: BartModel, gpt2: GPT2Model, weights, input_tokens, be
                         concat_probs = lprobs_bart
                     log_prob, indexes = torch.topk(concat_probs, beam_width)
                 if top_p > 0.:
+                    #concat_probs = concat_probs.add(n.block_penalty)
                     sorted_logits, sorted_indices = torch.sort(concat_probs, descending=True)
-                    sigmoid_logs = F.softmax(sorted_logits, 1)
+                    sigmoid_logs = F.softmax(sorted_logits, dim=1)
                     cum_sum = torch.cumsum(sigmoid_logs, 1)
+                    print("sorted logs: ", sorted_logits)
+                    print("sigmoid logits: ", sigmoid_logs)
+                    print("cum sum: ", cum_sum)
                     logits_top_p = cum_sum < top_p
                     indexes = sorted_indices[logits_top_p].unsqueeze(0)
                     log_prob = sorted_logits[logits_top_p].unsqueeze(0)
-
+                    print("indexes: ", indexes.size(), log_prob.size())
                 for new_k in range(indexes.size(1)):
                     decoded_item = indexes[0][new_k].unsqueeze(0).unsqueeze(0)
                     decoded_t = torch.cat((decoder_input, decoded_item), 1)

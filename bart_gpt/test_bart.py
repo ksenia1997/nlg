@@ -19,7 +19,7 @@ bsz = 1
 SPECIFICITY = False
 COMBINE_MODELS = True
 GREEDY_GPT2 = False
-with open('../.data/test.source') as source, open('hypotheses/test_shakespear_switch_pair.hypo', 'w') as fout:
+with open('../.data/test.source') as source, open('hypotheses/test_topP.hypo', 'w') as fout:
     sline = source.readline().strip()
     slines = [sline]
     if SPECIFICITY:
@@ -37,7 +37,7 @@ with open('../.data/test.source') as source, open('hypotheses/test_shakespear_sw
         if count % bsz == 0:
             with torch.no_grad():
                 if COMBINE_MODELS:
-                    hypotheses_batch = bart_gpt2_sample(bart_model, gpt2, [0.1, 0.9], slines, beam_width=2, top_p=0,
+                    hypotheses_batch = bart_gpt2_sample(bart_model, gpt2, [0.1, 0.9], slines, beam_width=0, top_p=0.7,
                                                         min_len=3, max_len=20, max_sentence_count=2, temperature=1,
                                                         unk_penalty=0.001, start_n=2)
                 if SPECIFICITY:
