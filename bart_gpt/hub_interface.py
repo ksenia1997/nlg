@@ -11,6 +11,7 @@ from typing import List
 import numpy as np
 import tensorflow as tf
 import torch
+import torch.nn.functional as F
 from fairseq import search
 
 import gpt.src.encoder as gpt2_encoder
@@ -22,16 +23,20 @@ from sequence_generator import SequenceGenerator
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 logger = logging.getLogger(__name__)
 
-
-def sample(model, idf, sentences: List[str], beam: int = 1, verbose: bool = False,
-           **kwargs) -> str:
-    input = [model.encode(sentence) for sentence in sentences]
-    hypos = generate(model, idf, input, beam, verbose, **kwargs)
-    return [model.decode(x['tokens']) for x in hypos]
+stop_words = ['ourselves', 'hers', 'between', 'yourself', 'but', 'again', 'there', 'about', 'once', 'during', 'out',
+              'very', 'having', 'with', 'they', 'own', 'an', 'be', 'some', 'for', 'do', 'its', 'yours', 'such', 'into',
+              'of', 'most', 'itself', 'other', 'off', 'is', 's', 'am', 'or', 'who', 'as', 'from', 'him', 'each', 'the',
+              'themselves', 'until', 'below', 'are', 'we', 'these', 'your', 'his', 'through', 'don', 'nor', 'me',
+              'were', 'her', 'more', 'himself', 'this', 'down', 'should', 'our', 'their', 'while', 'above', 'both',
+              'up', 'to', 'ours', 'had', 'she', 'all', 'no', 'when', 'at', 'any', 'before', 'them', 'same', 'and',
+              'been', 'have', 'in', 'will', 'on', 'does', 'yourselves', 'then', 'that', 'because', 'what', 'over',
+              'why', 'so', 'can', 'did', 'not', 'now', 'under', 'he', 'you', 'herself', 'has', 'just', 'where', 'too',
+              'only', 'myself', 'which', 'those', 'i', 'after', 'few', 'whom', 't', 'being', 'if', 'theirs', 'my',
+              'against', 'a', 'by', 'doing', 'it', 'how', 'further', 'was', 'here', 'than', '.', ',', '!', '?']
 
 
 def create_idf(model):
-    with open("../.data/tf-idf", "rb") as fp:
+    with open("../datasets/tf-idf", "rb") as fp:
         sentences = pickle.load(fp)
     indexes = list(range(0, len(model.task.target_dictionary)))
     sentences_length = len(sentences)
@@ -41,14 +46,51 @@ def create_idf(model):
         unique_tokens = np.unique(np.array(enc_sentence))
         for token in unique_tokens:
             indexes_dict[token] += 1
-    matrix_tf_idf = torch.arange(len(model.task.target_dictionary)).type(torch.FloatTensor)
+    matrix_idf = torch.arange(len(model.task.target_dictionary)).type(torch.FloatTensor)
     for k, v in indexes_dict.items():
-        matrix_tf_idf[k] = sentences_length / v
-    max_nidf = torch.max(matrix_tf_idf)
-    min_nidf = torch.min(matrix_tf_idf)
-    matrix_tf_idf = torch.log(matrix_tf_idf) - min_nidf
-    matrix_tf_idf = matrix_tf_idf / (max_nidf - min_nidf)
+        matrix_idf[k] = sentences_length / v
+    max_nidf = torch.max(matrix_idf)
+    min_nidf = torch.min(matrix_idf)
+    matrix_idf = torch.log(matrix_idf) - min_nidf
+    matrix_idf = matrix_idf / (max_nidf - min_nidf)
+    return matrix_idf
+
+
+def create_tf_idf(model, filename):
+    f = open(filename, 'r')
+    indexes = list(range(0, len(model.task.target_dictionary)))
+    indexes_idf_dict = dict(zip(indexes, [1 for x in range(0, len(indexes))]))
+    indexes_tf_dict = dict(zip(indexes, [1 for x in range(0, len(indexes))]))
+    word_counter = 0
+    doc_counter = 0
+    for line in f:
+        doc_counter += 1
+        separate_line = line.split()
+        doc = ""
+        for word in separate_line:
+            if word not in stop_words:
+                word_counter += 1
+                doc += word + " "
+        enc_sentences = model.encode(doc)
+        enc_sentences = np.array(enc_sentences)
+        for token in enc_sentences:
+            indexes_tf_dict[token] += 1
+        unique_tokens = np.unique(enc_sentences)
+        for token in unique_tokens:
+            indexes_idf_dict[token] += 1
+    matrix_tf_idf = torch.arange(len(model.task.target_dictionary)).type(torch.FloatTensor)
+    for k, v in indexes_idf_dict.items():
+        tf = indexes_tf_dict[k] / word_counter
+        idf = torch.log(doc_counter / indexes_idf_dict[k])
+        matrix_tf_idf[k] = tf * idf
     return matrix_tf_idf
+
+
+def sample(model, idf, sentences: List[str], beam: int = 1, verbose: bool = False,
+           **kwargs) -> str:
+    input = [model.encode(sentence) for sentence in sentences]
+    hypos = generate(model, idf, input, beam, verbose, **kwargs)
+    return [model.decode(x['tokens']) for x in hypos]
 
 
 def get_bart_tensor_with_gpt2_idxs():
@@ -313,18 +355,18 @@ def bart_gpt2_sample(bart: BartModel, gpt2: GPT2Model, weights, input_tokens, be
                 node_penalty = n.block_penalty.clone()
                 if beam_width > 0:
                     counter += 1
-                    if counter % 3 == 0 or counter % 4 == 0 :
+                    if counter % 3 == 0 or counter % 4 == 0:
                         concat_probs = lprobs_gpt
                     else:
                         concat_probs = lprobs_bart
                     log_prob, indexes = torch.topk(concat_probs, beam_width)
                 if top_p > 0.:
-                    concat_probs = concat_probs.add(n.block_penalty)
                     sorted_logits, sorted_indices = torch.sort(concat_probs, descending=True)
-                    sigmoid_logs = 1 / (1 + torch.exp(-sorted_logits)) + 0.5
-                    sorted_indices_top_p = sigmoid_logs > top_p
-                    indexes = sorted_indices[sorted_indices_top_p]
-                    log_prob = sorted_logits[sorted_indices_top_p]
+                    sigmoid_logs = F.softmax(sorted_logits, 1)
+                    cum_sum = torch.cumsum(sigmoid_logs, 1)
+                    logits_top_p = cum_sum < top_p
+                    indexes = sorted_indices[logits_top_p].unsqueeze(0)
+                    log_prob = sorted_logits[logits_top_p].unsqueeze(0)
 
                 for new_k in range(indexes.size(1)):
                     decoded_item = indexes[0][new_k].unsqueeze(0).unsqueeze(0)
@@ -351,7 +393,7 @@ def bart_gpt2_sample(bart: BartModel, gpt2: GPT2Model, weights, input_tokens, be
             beam_sentences = []
             for score, n in sorted(endnodes, key=operator.itemgetter(0)):
                 sentence = bart.model.decode(n.word_ids.squeeze(0))
-                sentence = sentence.replace('\n',' ')
+                sentence = sentence.replace('\n', ' ')
                 print("decoded sentence: ", sentence)
                 beam_sentences.append(sentence)
             decoded_batch.append(" \# ".join(beam_sentences))
