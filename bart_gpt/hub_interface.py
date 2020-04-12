@@ -88,7 +88,7 @@ def create_tf_idf(model, filename):
         matrix_tf_idf[k] = tf * idf
     print("matrix: ", matrix_tf_idf)
     print("matrix 10: ", matrix_tf_idf * 10)
-    return matrix_tf_idf *10
+    return matrix_tf_idf * 10
 
 
 def sample(model, idf, sentences: List[str], beam: int = 1, verbose: bool = False,
@@ -188,14 +188,15 @@ def generate(model, idf_matrix, tokens: List[torch.LongTensor], beam: int = 5, v
 
 
 class BeamSearchNode(object):
-    def __init__(self, previous_node, word_ids, log_prob, length, penalty, skip_ngram_number, prev_gpt2, max_len):
+    def __init__(self, previous_node, word_ids, log_prob, length, penalty, skip_ngram_number, prev_context_gpt2,
+                 max_len):
         self.prev_node = previous_node
         self.word_ids = word_ids
         self.logp = log_prob
         self.length = length
         self.block_penalty = penalty
         self.skip_n = skip_ngram_number
-        self.prev_gpt2 = prev_gpt2
+        self.prev_context_gpt2 = prev_context_gpt2
         if max_len is None:
             self.max_len = random.randrange(5, 50)
         else:
@@ -275,7 +276,7 @@ def gpt_sample(gpt2: GPT2Model, seed=None, top_k=3, temperature=1, batch_size=2,
 def bart_gpt2_sample(bart: BartModel, gpt2: GPT2Model, weights, input_tokens, beam_width: int = 0, top_p: float = 0.0,
                      min_len: int = 3, max_len: int = None, max_sentence_count: int = 2, temperature: float = 1.,
                      unk_penalty: float = 0.001, skip_ngram_number: int = 1, block_unigram_counter: int = None,
-                     combine_number: int = 0):
+                     combine_number: int = 0, block_stop_words: bool = False):
     '''
 
     Args:
@@ -292,6 +293,8 @@ def bart_gpt2_sample(bart: BartModel, gpt2: GPT2Model, weights, input_tokens, be
         unk_penalty:
         skip_ngram_number:
         block_unigram_counter:
+        combine_number:
+        block_stop_words:
 
     Returns: array of generated hypotheses
 
@@ -359,11 +362,11 @@ def bart_gpt2_sample(bart: BartModel, gpt2: GPT2Model, weights, input_tokens, be
                     if gpt_item == 50257:
                         gpt_item = 0
                     context = tf.convert_to_tensor([[gpt_item]])
-                    lm_output = gpt2_model.model(hparams=gpt2.hyper_params, X=context, past=n.prev_gpt2,
+                    lm_output = gpt2_model.model(hparams=gpt2.hyper_params, X=context, past=n.prev_context_gpt2,
                                                  reuse=tf.AUTO_REUSE)
                     logits = lm_output['logits'][:, :, :gpt2.hyper_params.n_vocab]
                     logits = logits[:, -1, :]
-                    n.prev_gpt2 = tf.concat([n.prev_gpt2, lm_output['present']], axis=-2)
+                    n.prev_context_gpt2 = tf.concat([n.prev_context_gpt2, lm_output['present']], axis=-2)
 
                     saver = tf.train.Saver()
                     ckpt = tf.train.latest_checkpoint(gpt2.checkpoint_path)
@@ -378,14 +381,14 @@ def bart_gpt2_sample(bart: BartModel, gpt2: GPT2Model, weights, input_tokens, be
                     concat_probs = concat_probs.add(lprobs_gpt * weights[1])
 
                 node_penalty = n.block_penalty.clone()
+                counter += 1
+                if counter < combine_number:
+                    concat_probs = lprobs_bart
+                elif counter < 2 * combine_number:
+                    concat_probs = lprobs_gpt
+                else:
+                    counter = 0
                 if beam_width > 0:
-                    counter += 1
-                    if counter < combine_number:
-                        concat_probs = lprobs_bart
-                    elif counter < 2 * combine_number:
-                        concat_probs = lprobs_gpt
-                    else:
-                        counter = 0
                     log_prob, indexes = torch.topk(concat_probs, beam_width)
                 if top_p > 0.:
                     sorted_logits, sorted_indices = torch.sort(concat_probs, descending=True)
@@ -394,6 +397,18 @@ def bart_gpt2_sample(bart: BartModel, gpt2: GPT2Model, weights, input_tokens, be
                     logits_top_p = cum_sum < top_p
                     indexes = sorted_indices[logits_top_p].unsqueeze(0)
                     log_prob = sorted_logits[logits_top_p].unsqueeze(0)
+                if block_stop_words:
+                    for k in range(indexes.size(1)):
+                        word = bart.model.decode(indexes[0][k].unsqueeze(0))
+                        if word not in stop_words:
+                            if k == 0:
+                                new_indexes = indexes[0][k]
+                                new_logp = log_prob[0][k]
+                            else:
+                                new_indexes = torch.cat((new_indexes, indexes[0][k]), 1)
+                                new_logp = torch.cat((new_logp, log_prob[0][k]), 1)
+                    indexes = new_indexes
+                    log_prob = new_logp
                 for new_k in range(indexes.size(1)):
                     decoded_item = indexes[0][new_k].unsqueeze(0).unsqueeze(0)
                     decoded_t = torch.cat((decoder_input, decoded_item), 1)
@@ -408,7 +423,7 @@ def bart_gpt2_sample(bart: BartModel, gpt2: GPT2Model, weights, input_tokens, be
                                     node_penalty[0][idx_token] -= 0.01
                     log_p = log_prob[0][new_k].item()
                     node = BeamSearchNode(n, decoded_t, n.logp + log_p, n.length + 1, node_penalty, n.skip_n - 1,
-                                          n.prev_gpt2, max_len)
+                                          n.prev_context_gpt2, max_len)
                     score = -node.eval()
                     nodes.put((score, node))
 
