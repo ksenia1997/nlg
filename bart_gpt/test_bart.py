@@ -2,7 +2,7 @@ import torch
 from fairseq.models.bart import BARTModel
 
 from hub_interface import BartModel, GPT2Model
-from hub_interface import sample, bart_gpt2_sample, create_idf, greedy_decoding
+from hub_interface import sample, bart_gpt2_sample, create_idf, greedy_decoding, create_tf_idf
 
 bart = BARTModel.from_pretrained(
     'fairseq/checkpoints/',
@@ -19,11 +19,13 @@ bsz = 1
 SPECIFICITY = False
 COMBINE_MODELS = True
 GREEDY_GPT2 = False
-with open('../.data/test.source') as source, open('hypotheses/test_topP.hypo', 'w') as fout:
+with open('../.data/test.source') as source, open('hypotheses/length_feature_poetic_73.hypo', 'w') as fout:
     sline = source.readline().strip()
     slines = [sline]
     if SPECIFICITY:
+        #idf_indexes = None
         idf_indexes = create_idf(bart)
+        #idf_indexes = create_tf_idf(bart, "../datasets/sst_positive_sentences.txt")
     bart_model = BartModel(bart)
     gpt2 = GPT2Model()
     for sline in source:
@@ -40,7 +42,7 @@ with open('../.data/test.source') as source, open('hypotheses/test_topP.hypo', '
                     hypotheses_batch = bart_gpt2_sample(bart_model, gpt2, [0.1, 0.9], slines, beam_width=0, top_p=0.7,
                                                         min_len=3, max_len=20, max_sentence_count=2)
                 if SPECIFICITY:
-                    hypotheses_batch = sample(bart, idf_indexes, slines, beam=3, lenpen=2.0, max_len_b=100, min_len=5,
+                    hypotheses_batch = sample(bart, idf_indexes, slines, beam=3, lenpen=2.0, max_len_b=200, min_len=5,
                                               no_repeat_ngram_size=2)
 
             for hypothesis in hypotheses_batch:
@@ -53,7 +55,7 @@ with open('../.data/test.source') as source, open('hypotheses/test_topP.hypo', '
         slines.append(sline.strip())
         count += 1
     if slines != []:
-        hypotheses_batch = sample(bart, tf_idf_indexes, slines, beam=3, lenpen=2.0, max_len_b=100, min_len=5,
+        hypotheses_batch = sample(bart, idf_indexes, slines, beam=3, lenpen=2.0, max_len_b=100, min_len=5,
                                   no_repeat_ngram_size=2)
         for hypothesis in hypotheses_batch:
             fout.write(hypothesis + '\n')

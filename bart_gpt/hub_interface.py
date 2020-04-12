@@ -65,6 +65,8 @@ def create_tf_idf(model, filename):
     word_counter = 0
     doc_counter = 0
     for line in f:
+        if line == "":
+            continue
         doc_counter += 1
         separate_line = line.split()
         doc = ""
@@ -84,7 +86,9 @@ def create_tf_idf(model, filename):
         tf = indexes_tf_dict[k] / word_counter
         idf = np.log(doc_counter / v)
         matrix_tf_idf[k] = tf * idf
-    return matrix_tf_idf
+    print("matrix: ", matrix_tf_idf)
+    print("matrix 10: ", matrix_tf_idf * 10)
+    return matrix_tf_idf *10
 
 
 def sample(model, idf, sentences: List[str], beam: int = 1, verbose: bool = False,
@@ -390,7 +394,6 @@ def bart_gpt2_sample(bart: BartModel, gpt2: GPT2Model, weights, input_tokens, be
                     logits_top_p = cum_sum < top_p
                     indexes = sorted_indices[logits_top_p].unsqueeze(0)
                     log_prob = sorted_logits[logits_top_p].unsqueeze(0)
-
                 for new_k in range(indexes.size(1)):
                     decoded_item = indexes[0][new_k].unsqueeze(0).unsqueeze(0)
                     decoded_t = torch.cat((decoder_input, decoded_item), 1)
