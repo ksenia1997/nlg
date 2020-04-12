@@ -5,6 +5,7 @@ import math
 import operator
 import os
 import pickle
+import random
 from queue import PriorityQueue
 from typing import List
 
@@ -64,6 +65,8 @@ def create_tf_idf(model, filename):
     word_counter = 0
     doc_counter = 0
     for line in f:
+        if line == "":
+            continue
         doc_counter += 1
         separate_line = line.split()
         doc = ""
@@ -81,9 +84,11 @@ def create_tf_idf(model, filename):
     matrix_tf_idf = torch.arange(len(model.task.target_dictionary)).type(torch.FloatTensor)
     for k, v in indexes_idf_dict.items():
         tf = indexes_tf_dict[k] / word_counter
-        idf = torch.log(doc_counter / indexes_idf_dict[k])
+        idf = np.log(doc_counter / indexes_idf_dict[k])
         matrix_tf_idf[k] = tf * idf
-    return matrix_tf_idf
+    print("matrix: ", matrix_tf_idf)
+    print("matrix 10: ", matrix_tf_idf * 10)
+    return matrix_tf_idf *10
 
 
 def sample(model, idf, sentences: List[str], beam: int = 1, verbose: bool = False,
@@ -197,6 +202,7 @@ class BeamSearchNode(object):
         self.block_penalty = penalty
         self.skip_n = skip_n
         self.prev_gpt2 = prev_gpt2
+        self.max_len = random.randrange(10, 100)
 
     def eval(self, alpha=1.0):
         reward = np.random.uniform(0.1, 10 ** (-20))
@@ -219,7 +225,7 @@ class GPT2Model(object):
         self.hyper_params = gpt2_model.default_hparams()
         self.eos = '<|endoftext|>'
         self.bart_gpt2_dict = get_bart_tensor_with_gpt2_idxs()
-        self.checkpoint_path = '../../../checkpoints_gpt2_sst_negative'
+        self.checkpoint_path = 'checkpoint/run1'
         with open(os.path.join('models', '117M', 'hparams.json')) as f:
             self.hyper_params.override_from_dict(json.load(f))
 
@@ -313,7 +319,7 @@ def bart_gpt2_sample(bart: BartModel, gpt2: GPT2Model, weights, input_tokens, be
             while True:
                 score, n = nodes.get()
                 decoder_input = n.word_ids
-                if (n.word_ids[0][-1].item() == bart.eos and n.prev_node is not None) or n.length >= max_len:
+                if (n.word_ids[0][-1].item() == bart.eos and n.prev_node is not None) or n.length >= n.max_len:
                     if n.length < min_len:
                         continue
                     endnodes.append((score, n))
@@ -365,13 +371,13 @@ def bart_gpt2_sample(bart: BartModel, gpt2: GPT2Model, weights, input_tokens, be
                     sorted_logits, sorted_indices = torch.sort(concat_probs, descending=True)
                     sigmoid_logs = F.softmax(sorted_logits, dim=1)
                     cum_sum = torch.cumsum(sigmoid_logs, 1)
-                    print("sorted logs: ", sorted_logits)
-                    print("sigmoid logits: ", sigmoid_logs)
-                    print("cum sum: ", cum_sum)
+                    #print("sorted logs: ", sorted_logits)
+                    #print("sigmoid logits: ", sigmoid_logs)
+                    #print("cum sum: ", cum_sum)
                     logits_top_p = cum_sum < top_p
                     indexes = sorted_indices[logits_top_p].unsqueeze(0)
                     log_prob = sorted_logits[logits_top_p].unsqueeze(0)
-                    print("indexes: ", indexes.size(), log_prob.size())
+                    #print("indexes: ", indexes.size(), log_prob.size())
                 for new_k in range(indexes.size(1)):
                     decoded_item = indexes[0][new_k].unsqueeze(0).unsqueeze(0)
                     decoded_t = torch.cat((decoder_input, decoded_item), 1)
