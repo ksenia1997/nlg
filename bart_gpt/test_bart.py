@@ -38,8 +38,7 @@ with open('../.data/test.source') as source, open('hypotheses/test_topP.hypo', '
             with torch.no_grad():
                 if COMBINE_MODELS:
                     hypotheses_batch = bart_gpt2_sample(bart_model, gpt2, [0.1, 0.9], slines, beam_width=0, top_p=0.7,
-                                                        min_len=3, max_len=20, max_sentence_count=2, temperature=1,
-                                                        unk_penalty=0.001, start_n=2)
+                                                        min_len=3, max_len=20, max_sentence_count=2)
                 if SPECIFICITY:
                     hypotheses_batch = sample(bart, idf_indexes, slines, beam=3, lenpen=2.0, max_len_b=100, min_len=5,
                                               no_repeat_ngram_size=2)
