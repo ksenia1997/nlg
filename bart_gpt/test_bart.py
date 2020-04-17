@@ -19,7 +19,7 @@ bsz = 1
 SPECIFICITY = False
 COMBINE_MODELS = True
 GREEDY_GPT2 = False
-with open('../.data/test.source') as source, open('hypotheses/length_feature_poetic_73.hypo', 'w') as fout:
+with open('../.data/test.source') as source, open('hypotheses/beam_sst_pos55_n3_models.hypo', 'w') as fout:
     sline = source.readline().strip()
     slines = [sline]
     if SPECIFICITY:
@@ -39,8 +39,8 @@ with open('../.data/test.source') as source, open('hypotheses/length_feature_poe
         if count % bsz == 0:
             with torch.no_grad():
                 if COMBINE_MODELS:
-                    hypotheses_batch = bart_gpt2_sample(bart_model, gpt2, [0.1, 0.9], slines, beam_width=0, top_p=0.7,
-                                                        min_len=3, max_len=20, max_sentence_count=2)
+                    hypotheses_batch = bart_gpt2_sample(bart_model, gpt2, [0.5, 0.5], slines, beam_width=20, top_p=0.,
+                                                        min_len=3, max_len=40, max_sentence_count=4, skip_ngram_number=3)
                 if SPECIFICITY:
                     hypotheses_batch = sample(bart, idf_indexes, slines, beam=3, lenpen=2.0, max_len_b=200, min_len=5,
                                               no_repeat_ngram_size=2)
