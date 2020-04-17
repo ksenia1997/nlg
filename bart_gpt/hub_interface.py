@@ -86,8 +86,6 @@ def create_tf_idf(model, filename):
         tf = indexes_tf_dict[k] / word_counter
         idf = np.log(doc_counter / v)
         matrix_tf_idf[k] = tf * idf
-    print("matrix: ", matrix_tf_idf)
-    print("matrix 10: ", matrix_tf_idf * 10)
     return matrix_tf_idf * 10
 
 
@@ -198,7 +196,7 @@ class BeamSearchNode(object):
         self.skip_n = skip_ngram_number
         self.prev_context_gpt2 = prev_context_gpt2
         if max_len is None:
-            self.max_len = random.randrange(5, 50)
+            self.max_len = random.randrange(15, 50)
         else:
             self.max_len = max_len
 
@@ -300,14 +298,14 @@ def bart_gpt2_sample(bart: BartModel, gpt2: GPT2Model, weights, input_tokens, be
 
     '''
 
-    assert max_len > 2 or max_len is None
+    assert (max_len is None or max_len > 2)
     assert max_sentence_count > 1
-    assert min_len > 1
+    assert min_len > 1, "Minimal length of a generated utterance should be bigger than 1"
     assert bool(beam_width) != bool(top_p), "Set beam width or top p"
 
     decoded_batch = []
     log_softmax = torch.nn.LogSoftmax(dim=1)
-    MAX_TOP_P_DIM = 100
+    MAX_TOP_P_DIM = 50
 
     with tf.Session(graph=tf.Graph()) as sess:
         init = tf.global_variables_initializer()
@@ -316,7 +314,7 @@ def bart_gpt2_sample(bart: BartModel, gpt2: GPT2Model, weights, input_tokens, be
         for i in range(len(input_tokens)):
             endnodes = []
             nodes = PriorityQueue()
-            print("input_tokens[i]: ", input_tokens[i])
+            print("input_token: ", input_tokens[i])
             # BART
             bart.ensemble_model = EnsembleModel([bart.model.model])
             enc_tokens = [bart.model.encode(input_tokens[i])]
@@ -342,6 +340,9 @@ def bart_gpt2_sample(bart: BartModel, gpt2: GPT2Model, weights, input_tokens, be
                 score, n = nodes.get()
                 decoder_input = n.word_ids
                 if (n.word_ids[0][-1].item() == bart.eos and n.prev_node is not None) or n.length >= n.max_len:
+                    print("max len: ", n.max_len)
+                    print("n len: ", n.length)
+                    print("last item: ", n.word_ids[0][-1].item())
                     if n.length < min_len:
                         continue
                     endnodes.append((score, n))
@@ -356,6 +357,7 @@ def bart_gpt2_sample(bart: BartModel, gpt2: GPT2Model, weights, input_tokens, be
                 concat_probs = lprobs_bart * weights[0]
 
                 if n.skip_n > 0:
+                    print("skip")
                     n.skip_n -= 1
                 else:
                     gpt_item = gpt2.bart_gpt2_dict[decoder_input[0][-1]]
@@ -378,13 +380,16 @@ def bart_gpt2_sample(bart: BartModel, gpt2: GPT2Model, weights, input_tokens, be
 
                     converted_logits = convert_gpt_idxs_to_bart(logits, lprobs_bart.size(1), gpt2.bart_gpt2_dict)
                     lprobs_gpt = log_softmax(converted_logits)
+                    print("gpt added")
                     concat_probs = concat_probs.add(lprobs_gpt * weights[1])
 
                 node_penalty = n.block_penalty.clone()
                 counter += 1
                 if counter < combine_number:
+                    print("combine number")
                     concat_probs = lprobs_bart
                 elif counter < 2 * combine_number:
+                    print("combine number2")
                     concat_probs = lprobs_gpt
                 else:
                     counter = 0
@@ -397,18 +402,22 @@ def bart_gpt2_sample(bart: BartModel, gpt2: GPT2Model, weights, input_tokens, be
                     logits_top_p = cum_sum < top_p
                     indexes = sorted_indices[logits_top_p].unsqueeze(0)
                     log_prob = sorted_logits[logits_top_p].unsqueeze(0)
+                    indexes = indexes[0][:MAX_TOP_P_DIM].unsqueeze(0)
+                    log_prob = log_prob[0][:MAX_TOP_P_DIM].unsqueeze(0)
                 if block_stop_words:
+                    isFirst = True
                     for k in range(indexes.size(1)):
                         word = bart.model.decode(indexes[0][k].unsqueeze(0))
                         if word not in stop_words:
-                            if k == 0:
+                            if isFirst:
                                 new_indexes = indexes[0][k]
                                 new_logp = log_prob[0][k]
                             else:
                                 new_indexes = torch.cat((new_indexes, indexes[0][k]), 1)
                                 new_logp = torch.cat((new_logp, log_prob[0][k]), 1)
-                    indexes = new_indexes
-                    log_prob = new_logp
+                    if not isFirst:
+                        indexes = new_indexes
+                        log_prob = new_logp
                 for new_k in range(indexes.size(1)):
                     decoded_item = indexes[0][new_k].unsqueeze(0).unsqueeze(0)
                     decoded_t = torch.cat((decoder_input, decoded_item), 1)
@@ -422,7 +431,7 @@ def bart_gpt2_sample(bart: BartModel, gpt2: GPT2Model, weights, input_tokens, be
                                     idx_token = decoded_unique_count[indxes]
                                     node_penalty[0][idx_token] -= 0.01
                     log_p = log_prob[0][new_k].item()
-                    node = BeamSearchNode(n, decoded_t, n.logp + log_p, n.length + 1, node_penalty, n.skip_n - 1,
+                    node = BeamSearchNode(n, decoded_t, n.logp + log_p, n.length + 1, node_penalty, n.skip_n,
                                           n.prev_context_gpt2, max_len)
                     score = -node.eval()
                     nodes.put((score, node))
