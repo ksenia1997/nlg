@@ -398,17 +398,20 @@ def bart_gpt2_sample(bart: BartModel, gpt2: GPT2Model, weights, input_tokens, be
                     indexes = sorted_indices[logits_top_p].unsqueeze(0)
                     log_prob = sorted_logits[logits_top_p].unsqueeze(0)
                 if block_stop_words:
+                    isFirst = True
                     for k in range(indexes.size(1)):
                         word = bart.model.decode(indexes[0][k].unsqueeze(0))
                         if word not in stop_words:
-                            if k == 0:
+                            if isFirst:
                                 new_indexes = indexes[0][k]
                                 new_logp = log_prob[0][k]
+                                isFirst = False
                             else:
                                 new_indexes = torch.cat((new_indexes, indexes[0][k]), 1)
                                 new_logp = torch.cat((new_logp, log_prob[0][k]), 1)
-                    indexes = new_indexes
-                    log_prob = new_logp
+                    if not isFirst:
+                        indexes = new_indexes
+                        log_prob = new_logp
                 for new_k in range(indexes.size(1)):
                     decoded_item = indexes[0][new_k].unsqueeze(0).unsqueeze(0)
                     decoded_t = torch.cat((decoder_input, decoded_item), 1)
@@ -422,7 +425,7 @@ def bart_gpt2_sample(bart: BartModel, gpt2: GPT2Model, weights, input_tokens, be
                                     idx_token = decoded_unique_count[indxes]
                                     node_penalty[0][idx_token] -= 0.01
                     log_p = log_prob[0][new_k].item()
-                    node = BeamSearchNode(n, decoded_t, n.logp + log_p, n.length + 1, node_penalty, n.skip_n - 1,
+                    node = BeamSearchNode(n, decoded_t, n.logp + log_p, n.length + 1, node_penalty, n.skip_n,
                                           n.prev_context_gpt2, max_len)
                     score = -node.eval()
                     nodes.put((score, node))

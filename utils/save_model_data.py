@@ -9,7 +9,7 @@ def save_data_for_BART(filename, data):
 
     """
     with open(filename + ".source", 'w') as source, open(filename + ".target", 'w') as target:
-        for i in range(0, len(data), 2):
+        for i in range(0, len(data)-1, 2):
             source.write(data[i] + '\n')
             target.write(data[i + 1] + '\n')
 

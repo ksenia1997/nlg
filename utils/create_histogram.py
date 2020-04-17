@@ -4,21 +4,13 @@ from collections import defaultdict
 import matplotlib.pyplot as plt
 
 
-def plot_histogram(title, xlabel, ylabel, data, bins_number, filename):
-    """
-
-    Args:
-        title: title of the histogram
-        xlabel: title what is written on axis x
-        ylabel: title what is written on axis y
-        data: data for plotting
-        bins_number: number of intervals
-        filename: save file direction
-
-    Returns: None
-
-    """
-    plt.hist(data, bins=bins_number, color='blue')
+def plot_histogram(title, xlabel, ylabel, data1, data2,  label1, label2, filename):
+    #plt.figure(figsize=[8, 4])
+    if label1 is None and label2 is None and data2 is None:
+        plt.hist(data1, bins=50)
+    else:
+        n, bins, patches = plt.hist([data1, data2],  histtype='bar', label=[label1, label2])
+        plt.legend(prop={'size': 10})
     plt.xlabel(xlabel)
     plt.ylabel(ylabel)
     plt.title(title)
@@ -55,14 +47,10 @@ def create_persona_histograms():
     pp_desc.sort()
     utr1_length.sort()
     utr2_length.sort()
-    plot_histogram('Histogram of your persona description lengths', 'number of words in description',
-                   'number of descriptions', yp_desc, 50, 'persona_desc.pdf')
-    plot_histogram('Histogram of partner\'s persona description lengths', 'number of words in description',
-                   'number of descriptions', pp_desc, 50, 'partner_desc.pdf')
-    plot_histogram('Histogram of utterances\' lengths of the first person', 'number of words in utterance',
-                   'number of utterances', utr1_length, 50, 'uttr1_length.pdf')
-    plot_histogram('Histogram of utterances\' lengths of the first person', 'number of words in utterance',
-                   'number of utterances', utr2_length, 50, 'uttr2_length.pdf')
+    plot_histogram('Histogram of persona description lengths', 'number of words in description',
+                   'number of descriptions', yp_desc, pp_desc, 'person1', 'person2', 'persona_desc.pdf')
+    plot_histogram('Histogram of utterances\' lengths', 'number of words in utterance',
+                   'number of utterances', utr1_length, utr2_length, 'person1', 'person2', 'uttr_length.pdf')
 
 
 def create_joke_histogram():
@@ -70,7 +58,7 @@ def create_joke_histogram():
     jokes_length = columns['jokes_length']
     jokes_length.sort()
     plot_histogram('Histogram of jokes\' lengths', 'number of words in a joke',
-                   'number of jokes', jokes_length, 50, 'jokes_length.pdf')
+                   'number of jokes', jokes_length, None, None, None, 'jokes_length.pdf')
 
 
 def create_tweet_histogram():
@@ -78,7 +66,27 @@ def create_tweet_histogram():
     tweet_lengths = columns['twit_length']
     tweet_lengths.sort()
     plot_histogram('Histogram of tweets\' lengths', 'number of words in a tweet',
-                   'number of tweets', tweet_lengths, 50, 'tweet.pdf')
+                   'number of tweets', tweet_lengths, None, None, None, 'tweet.pdf')
 
 
-create_tweet_histogram()
+def create_sst_histogram():
+    neg_columns = load_histogram_data('../datasets/sst_negative_lengths.csv')
+    neg_lengths = neg_columns['lengths']
+    neg_lengths.sort()
+    pos_columns = load_histogram_data('../datasets/sst_positive_lengths.csv')
+    pos_lengths = pos_columns['lengths']
+    pos_lengths.sort()
+    plot_histogram('Histogram of SST utterances\' lengths', 'number of words in an utterance',
+                   'number of utterances', neg_lengths, pos_lengths, 'negative', 'positive', 'sst.pdf')
+
+
+def create_shakespear_histogram():
+    columns = load_histogram_data('../datasets/shakespeare_lengths.csv')
+    lengths = columns['lengths']
+    lengths.sort()
+    plot_histogram('Histogram of Shakespeare\'s plays', 'number of words in an utterance',
+                   'number of utterances', lengths, None, None, None, 'shakespeare.pdf')
+
+
+
+create_shakespear_histogram()

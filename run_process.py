@@ -21,11 +21,8 @@ config = {"train_batch_size": 32,
           "context_pair_count": 0,
           "data_BART": True,  # data for BART model should be saved in a special format
           "data_GPT2": False,  # data for GPT2 model should be saved in a special format
-          "data_for_idf": False,
-          "prepare_data": True,
-          "prepare_dict": False,
-          "train_preprocess": False,  # to train preprocess, it's necessary to prepare TWITTER data before
-          "with_preprocess": False,  # to train a model with preprocessed model
+          "pretraining": False,  # it's necessary to prepare TWITTER data before
+          "with_pretrained_model": False,  # to train a model with pretrained model
           "process": 'test',  # train|test|train_lm
           "is_stylized_generation": True,  # while testing generate text with different styles
           "with_stylized_lm": False,  # if "is_stylized_generation" is True

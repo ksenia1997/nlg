@@ -221,8 +221,8 @@ def run_model(config):
     vocab = fields["source"].vocab
     print("[Length of vocabulary: ", len(vocab), "]")
 
-    if config["train_preprocess"]:
-        print("[Train preprocess]")
+    if config["pretraining"]:
+        print("[Pretraining]")
         train, valid = TabularDataset.splits(
             path="./.data",
             train='twitter_train.csv', validation="twitter_valid.csv",
@@ -317,7 +317,7 @@ def run_model(config):
     elif config["process"] == 'train':
         print("[Train model]")
         model = Seq2Seq(config, vocab, device)
-        if config["with_preprocess"]:
+        if config["with_pretrained_model"]:
             print("[Training with preprocess]")
             model.load_state_dict(torch.load(MODEL_PREPROCESS_SAVE_PATH, map_location=torch.device(device)))
         fit_model(model, train_iter, valid_iter, config["n_epochs"], config["clip"], MODEL_SAVE_PATH)

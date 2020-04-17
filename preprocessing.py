@@ -1,11 +1,13 @@
-import os
 import pickle
 import random
 import re
 import string
 
 import en_core_web_sm
+import nltk
 import spacy
+
+nltk.download('stopwords')
 from nltk.corpus import stopwords
 from spacy.tokenizer import Tokenizer
 
@@ -34,8 +36,6 @@ def prepare_both_Persona_chat(nlp, filename):
         delimiter_context_dialogue = " CC "
         delimiter = " # "
         delimiter_start = " SS "
-        delimiter_sep = " SEP "
-        delimiter_end = " EE "
 
         person1, person2 = [], []
         add_description = True
@@ -85,6 +85,7 @@ def prepare_both_Persona_chat(nlp, filename):
                 utterance2 = JOIN_TOKEN.join(tokenize(utterance2, nlp)[1])
                 person1.append(utterance1)
                 person2.append(utterance2)
+
     return train_data, valid_data, test_data
 
 
@@ -115,7 +116,6 @@ def prepare_Persona_chat(nlp, filename, context_pair_count, with_description):
     delimiter = " # "
     delimiter_start = " SS "
     delimiter_sep = " SEP "
-    delimiter_end = " EE "
 
     your_persona_description = ""
     add_to_test_data = False
@@ -236,12 +236,10 @@ def prepare_joke_dataset(nlp, reddit_jokes, stupidstuff, wocka):
     data_stupidstuff = load_json(stupidstuff)
     data_wocka = load_json(wocka)
     jokes_train = []
-    counter = 0
     all_data = [data_reddit, data_stupidstuff, data_wocka]
     for i in range(len(all_data)):
         # i in [0:2]
         for joke in all_data[i]:
-            counter += 1
             if i == 0:
                 joint_joke = joke["title"] + " " + joke["body"]
             else:
@@ -251,6 +249,14 @@ def prepare_joke_dataset(nlp, reddit_jokes, stupidstuff, wocka):
                 continue
             jokes_train.append(joint_joke)
     return jokes_train
+
+
+def prepare_lm_dataset(nlp, filename):
+    train_data = []
+    with open(filename, "r") as file:
+        for line in file:
+            train_data.append(JOIN_TOKEN.join(tokenize(line, nlp)[1]))
+    return train_data
 
 
 def prepare_short_jokes(nlp, jokes_file):
@@ -318,21 +324,68 @@ def prepare_dict():
     create_json(DATASETS_PATH + "jokes_dict.json", jokes_dict)
 
 
-def prepare_data(config):
+def prepare_decoding_feature_modifications():
+    prepare_dict()
+    sentences = split_sentences_both_Persona_chat(DATASETS_PATH + 'persona_chat_both.txt')
+    with open(SAVE_DATA_PATH + 'idf', "wb") as fp:
+        pickle.dump(sentences, fp)
+    fp.close()
+
+
+def prepare_lm_data(config):
     nlp = en_core_web_sm.load()
     nlp.tokenizer = create_custom_tokenizer(nlp)
     if not os.path.exists(SAVE_DATA_PATH[:-1]):
         os.makedirs(SAVE_DATA_PATH[:-1])
 
-    if config["prepare_dict"]:
-        prepare_dict()
-        return
+    print("[Preparing Joke data]")
+    filename_train_jokes = SAVE_DATA_PATH + 'jokes_'
+    if (config["model_lm_type"] == 'GPT2' and not os.path.isfile(filename_train_jokes + "train_gpt2")) or (
+            config["model_lm_type"] == 'LSTM' and not os.path.isfile(filename_train_jokes + ".csv")):
+        train_data_jokes = prepare_joke_dataset(nlp, DATASETS_PATH + 'reddit_jokes.json',
+                                                DATASETS_PATH + 'stupidstuff.json',
+                                                DATASETS_PATH + 'wocka.json')
+        if config["model_lm_type"] == 'GPT2':
+            save_data_for_GPT2(filename_train_jokes + "train_gpt2", train_data_jokes)
+        elif config["model_lm_type"] == "LSTM":
+            save_csv_row(filename_train_jokes + ".csv", train_data_jokes)
 
-    if config["data_for_idf"]:
-        sentences = split_sentences_both_Persona_chat(DATASETS_PATH + 'persona_chat_both.txt')
-        with open(SAVE_DATA_PATH + 'idf', "wb") as fp:
-            pickle.dump(sentences, fp)
-        return
+    print("[Preparing Poetic data]")
+    filename_train_poetic = SAVE_DATA_PATH + 'poetic_'
+    if (config["model_lm_type"] == 'GPT2' and not os.path.isfile(filename_train_poetic + "train_gpt2")) or (
+            config["model_lm_type"] == 'LSTM' and not os.path.isfile(filename_train_poetic + ".csv")):
+        train_data_poetic = prepare_lm_dataset(nlp, DATASETS_PATH + "shakespeare.txt")
+        # train_data_poetic = prepare_poetic_data(DATASETS_PATH + 'kaggle_poem_dataset.csv', "Content")
+        if config["model_lm_type"] == 'GPT2':
+            save_data_for_GPT2(filename_train_poetic + "train_gpt2", train_data_poetic)
+        elif config["model_lm_type"] == "LSTM":
+            save_csv_row(filename_train_poetic + ".csv", train_data_poetic)
+
+    print("[Preparing SST dataset]")
+    filename_train_negative = SAVE_DATA_PATH + 'negative_'
+    if (config["model_lm_type"] == 'GPT2' and not os.path.isfile(filename_train_negative + "train_gpt2")) or (
+            config["model_lm_type"] == 'LSTM' and not os.path.isfile(filename_train_negative + ".csv")):
+        train_data_negative = prepare_lm_dataset(nlp, DATASETS_PATH + "sst_negative_sentences.txt")
+        if config["model_lm_type"] == 'GPT2':
+            save_data_for_GPT2(filename_train_negative + "train_gpt2", train_data_negative)
+        elif config["model_lm_type"] == "LSTM":
+            save_csv_row(filename_train_negative + ".csv", train_data_negative)
+
+    filename_train_positive = SAVE_DATA_PATH + 'positive_'
+    if (config["model_lm_type"] == 'GPT2' and not os.path.isfile(filename_train_positive + "train_gpt2")) or (
+            config["model_lm_type"] == 'LSTM' and not os.path.isfile(filename_train_positive + ".csv")):
+        train_data_positive = prepare_lm_dataset(nlp, DATASETS_PATH + 'sst_positive_sentences.txt')
+        if config["model_lm_type"] == 'GPT2':
+            save_data_for_GPT2(filename_train_positive + "train_gpt2", train_data_positive)
+        elif config["model_lm_type"] == "LSTM":
+            save_csv_row(filename_train_positive + ".csv", train_data_positive)
+
+
+def prepare_seq2seq_data(config):
+    nlp = en_core_web_sm.load()
+    nlp.tokenizer = create_custom_tokenizer(nlp)
+    if not os.path.exists(SAVE_DATA_PATH[:-1]):
+        os.makedirs(SAVE_DATA_PATH[:-1])
 
     if config["dataset_type_seq2seq"] == "PERSONA":
         print("[Preparing Persona data]")
@@ -342,59 +395,40 @@ def prepare_data(config):
         train_data, valid_data, test_data = prepare_Persona_chat(nlp, DATASETS_PATH + 'persona_chat.txt',
                                                                  config["context_pair_count"],
                                                                  config["with_description"])
-
-    elif config["dataset_type_seq2seq"] == "TWITTER":
-        print("[Preparing Twitter data]")
-        filename_train = SAVE_DATA_PATH + 'twitter_train.csv'
-        filename_valid = SAVE_DATA_PATH + 'twitter_valid.csv'
-        filename_test = SAVE_DATA_PATH + 'twitter_test.csv'
-        train_data, valid_data, test_data = prepare_Twitter_data(nlp, DATASETS_PATH + 'twitter_chat.txt')
-
     elif config["dataset_type_seq2seq"] == "PERSONA_BOTH":
         print("[Preparing Persona data with both persona description]")
-        filename_train = SAVE_DATA_PATH + 'train.csv'
-        filename_valid = SAVE_DATA_PATH + 'valid.csv'
-        filename_test = SAVE_DATA_PATH + 'test.csv'
+        filename_train = SAVE_DATA_PATH + 'persona_train.csv'
+        filename_valid = SAVE_DATA_PATH + 'persona_valid.csv'
+        filename_test = SAVE_DATA_PATH + 'persona_test.csv'
         train_data, valid_data, test_data = prepare_both_Persona_chat(nlp, DATASETS_PATH + 'persona_chat_both.txt')
 
-    if config["dataset_decoding"] == "JOKE":
-        print("[Preparing Joke data]")
-        filename_train = SAVE_DATA_PATH + '_jokes_'
-        train_data = prepare_joke_dataset(nlp, DATASETS_PATH + 'reddit_jokes.json',
-                                          DATASETS_PATH + 'stupidstuff.json',
-                                          DATASETS_PATH + 'wocka.json')
-    elif config["dataset_decoding"] == "POETIC":
-        filename_train = SAVE_DATA_PATH + '_poetic_'
-        train_data = prepare_poetic_data(DATASETS_PATH + 'kaggle_poem_dataset.csv', "Content")
-
+    if config["pretraining_dataset"] == "TWITTER":
+        print("[Preparing Twitter data]")
+        filename_train_pretraining = SAVE_DATA_PATH + 'pre_train.csv'
+        filename_valid_pretraining = SAVE_DATA_PATH + 'pre_valid.csv'
+        filename_test_pretraining = SAVE_DATA_PATH + 'pre_test.csv'
+        train_data_pretraining, valid_data_pretraining, test_data_pretraining = prepare_Twitter_data(nlp,
+                                                                                                     DATASETS_PATH + 'twitter_chat.txt')
 
     print("[train data: ", int(len(train_data) / 2), "]")
-    # print("[valid data: ", int(len(valid_data) / 2), "]")
-    # print("[test data:  ", int(len(test_data) / 2), "]")
+    print("[valid data: ", int(len(valid_data) / 2), "]")
+    print("[test data:  ", int(len(test_data) / 2), "]")
 
-    if config["model_type"] == 'BART':
+    if config["model_seq2seq_type"] == 'BART':
         print("[Preparing data for BART]")
         save_data_for_BART(SAVE_DATA_PATH + "train", train_data)
         save_data_for_BART(SAVE_DATA_PATH + "val", valid_data)
         save_data_for_BART(SAVE_DATA_PATH + "test", test_data)
-        return
 
-    elif config["model_type"] == 'GPT2':
-        print("[Preparing data for GPT2]")
-        save_data_for_GPT2(filename_train + " train_gpt2", train_data)
-        return
+        save_data_for_BART(SAVE_DATA_PATH + "pre_train", train_data_pretraining)
+        save_data_for_BART(SAVE_DATA_PATH + "pre_valid", valid_data_pretraining)
+        save_data_for_BART(SAVE_DATA_PATH + "pre_test", test_data_pretraining)
 
-    elif config["model_type"] == 'Basemodel':
-        if config["dataset_type_seq2seq"] in ["TWITTER", "PERSONA_BOTH", "PERSONA"]:
-            save_to_csv(filename_train, train_data)
-            save_to_csv(filename_valid, valid_data)
-            save_to_csv(filename_test, test_data)
+    elif config["model_seq2seq_type"] == 'Basemodel':
+        save_to_csv(filename_train, train_data)
+        save_to_csv(filename_valid, valid_data)
+        save_to_csv(filename_test, test_data)
 
-            save_csv_row(filename_train, train_data)
-            save_csv_row(filename_valid, valid_data)
-            save_csv_row(filename_test, test_data)
-
-    elif config["model_type"] == "Decoding":
-        if config["dataset_decoding"] in ["JOKE", "POETIC"]:
-            save_csv_row(filename_train+".csv", train_data)
-
+        save_to_csv(filename_train_pretraining, train_data_pretraining)
+        save_to_csv(filename_valid_pretraining, valid_data_pretraining)
+        save_to_csv(filename_test_pretraining, test_data_pretraining)
