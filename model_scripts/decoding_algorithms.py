@@ -47,17 +47,17 @@ class BeamSearchNode(object):
         return self.logp / float(self.length - 1 + 1e-6) + alpha * reward
 
 
-def beam_decode_mixed(vocab, beam_width, max_len, max_sentence_count, models, with_attention, decoder_scores,
+def beam_decode_mixed(vocab, beam_width, max_len, max_sentence_count, models, with_attention, lm_weights,
                       stylized_score_tensors, target_tensor, encoder_hiddens, encoder_outputs, sos_token, eos_token,
                       device):
     # can be 1 or several decoders
     if len(models) != 1:
-        assert len(models) == len(decoder_scores), "Number of model decoders should be equal to the number of scores"
+        assert len(models) == len(lm_weights), "Number of model decoders should be equal to the number of scores"
     else:
-        assert len(decoder_scores) - 1 == len(
+        assert len(lm_weights) - 1 == len(
             stylized_score_tensors), "Number of styles should be equal to number of discrete distribution "
 
-    assert sum(decoder_scores) == 1, "Sum of scores must be 1"
+    assert sum(lm_weights) == 1, "Sum of scores must be 1"
 
     decoded_batch = []
     max_len = max(max_len, 2)
@@ -108,17 +108,17 @@ def beam_decode_mixed(vocab, beam_width, max_len, max_sentence_count, models, wi
                     decoder_outputs = torch.cat((decoder_outputs, stylized_out), 0)
             decoder_outputs = decoder_outputs.transpose(0, 1)
 
-            score = torch.FloatTensor(decoder_scores).to(device).unsqueeze(1)
+            score = torch.FloatTensor(lm_weights).to(device).unsqueeze(1)
             decoder_out_scored = torch.matmul(decoder_outputs, score).transpose(0, 1)
             for i in range(len(decoder_hs)):
                 hidden = decoder_hs[i][0]
                 cell = decoder_hs[i][1]
                 if i == 0:
-                    new_hidden = hidden * decoder_scores[i]
-                    new_cell = cell * decoder_scores[i]
+                    new_hidden = hidden * lm_weights[i]
+                    new_cell = cell * lm_weights[i]
                 else:
-                    new_hidden = torch.add(new_hidden, hidden * decoder_scores[i])
-                    new_cell = torch.add(new_cell, cell * decoder_scores[i])
+                    new_hidden = torch.add(new_hidden, hidden * lm_weights[i])
+                    new_cell = torch.add(new_cell, cell * lm_weights[i])
 
             log_prob, indexes = torch.topk(decoder_out_scored, beam_width)
             decoder_hidden = (new_hidden, new_cell)

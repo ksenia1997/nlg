@@ -173,7 +173,7 @@ def fit_model(model, train_iter, valid_iter, n_epochs, clip, model_path):
     model.tb.close()
 
 
-def test_model(nlp, example, vocab, config, models, stylized_score_tensors):
+def test_model(nlp, example, vocab, config, models, stylized_score_tensors, weights):
     _, tokenized = tokenize(example, nlp)
     tokenized = [TEXT.init_token] + tokenized + [TEXT.eos_token]
     numericalized = [vocab.stoi[t] for t in tokenized]
@@ -192,7 +192,7 @@ def test_model(nlp, example, vocab, config, models, stylized_score_tensors):
 
     elif config["decoding_type"] == "weighted_beam":
         trg_tensor = beam_decode_mixed(vocab, config['beam_width'], config['max_sentence_len'], config['max_sentences'],
-                                       models, config["with_attention"], [0.4, 0.6], stylized_score_tensors,
+                                       models, config["with_attention"], weights, stylized_score_tensors,
                                        trg_tensor, (hidden, cell), enc_output, sos_token, eos_token, device)
 
     else:
@@ -287,19 +287,13 @@ def run_model(config):
 
     if config["pretraining"]:
         print("[Pretraining]")
-        train, valid = TabularDataset.splits(
-            path="./.data",
-            train='pre_train.csv', validation="pre_valid.csv",
-            format='csv',
-            skip_header=True,
-            fields=data_fields)
         # Create a set of iterators
-        train_iter = BucketIterator(train,
+        train_iter = BucketIterator(trn,
                                     shuffle=True, sort=False,
                                     batch_size=config["train_batch_size"],
                                     repeat=False,
                                     device=device)
-        valid_iter = BucketIterator(valid,
+        valid_iter = BucketIterator(vld,
                                     shuffle=True, sort=False,
                                     batch_size=config["train_batch_size"],
                                     repeat=False,
@@ -307,13 +301,19 @@ def run_model(config):
         model = Seq2Seq(config, vocab, device)
         fit_model(model, train_iter, valid_iter, config["n_epochs"], config["clip"], MODEL_PREPROCESS_SAVE_PATH)
 
+    train, valid = TabularDataset.splits(
+        path="./.data",
+        train='persona_train.csv', validation="persona_valid.csv",
+        format='csv',
+        skip_header=True,
+        fields=data_fields)
     # Create a set of iterators
-    train_iter = BucketIterator(trn,
+    train_iter = BucketIterator(train,
                                 shuffle=True, sort=False,
                                 batch_size=config["train_batch_size"],
                                 repeat=False,
                                 device=device)
-    valid_iter = BucketIterator(vld,
+    valid_iter = BucketIterator(valid,
                                 shuffle=False, sort=False,
                                 batch_size=config["train_batch_size"],
                                 repeat=False,
@@ -334,16 +334,36 @@ def run_model(config):
         model = Seq2Seq(config, vocab, device)
         model.load_state_dict(torch.load(MODEL_SAVE_PATH, map_location=torch.device(device)))
         model.eval()
-
         models.append(model)
-
+        weights = []
         if config['is_stylized_generation']:
 
             if config["with_stylized_lm"]:
+                weights.append(float(config["jokes_weight"]))
+                weights.append(float(config["poetic_weight"]))
+                weights.append(float(config["positive_weight"]))
+                weights.append(float(config["negative_weight"]))
+
                 model_funny = LM(config, vocab, device)
                 model_funny.load_state_dict(torch.load(MODEL_SAVE_FUNNY_PATH, map_location=torch.device(device)))
                 model_funny.eval()
+
+                model_poetic = LM(config, vocab, device)
+                model_poetic.load_state_dict(torch.load(MODEL_SAVE_POETIC_PATH, map_location=torch.device(device)))
+                model_poetic.eval()
+
+                model_positive = LM(config, vocab, device)
+                model_positive.load_state_dict(torch.load(MODEL_SAVE_POSITIVE_PATH, map_location=torch.device(device)))
+                model_positive.eval()
+
+                model_negative = LM(config, vocab, device)
+                model_negative.load_state_dict(torch.load(MODEL_SAVE_NEGATIVE_PATH, map_location=torch.device(device)))
+                model_negative.eval()
+
                 models.append(model_funny)
+                models.append(model_poetic)
+                models.append(model_positive)
+                models.append(model_negative)
 
             if config['with_controlling_attributes']:
                 joke_scores_tensor = []
@@ -356,7 +376,7 @@ def run_model(config):
                         joke_scores_tensor.append(float(jokes_dict[word]))
                 style_scores_tensors.append(torch.FloatTensor(joke_scores_tensor))
 
-        test_data = load_csv(SAVE_DATA_PATH + 'test.csv')
+        test_data = load_csv(SAVE_DATA_PATH + 'persona_test.csv')
         data_to_save = []
         nlp = en_core_web_sm.load()
         nlp.tokenizer = create_custom_tokenizer(nlp)
@@ -367,7 +387,7 @@ def run_model(config):
             writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
             writer.writeheader()
             for i in range(0, len(test_data), 2):
-                answer = test_model(nlp, test_data[i], vocab, config, models, style_scores_tensors)
+                answer = test_model(nlp, test_data[i], vocab, config, models, style_scores_tensors, weights)
                 writer.writerow({'source': test_data[i], 'target': answer})
                 data_to_save.append(test_data[i])
                 data_to_save.append(answer)
