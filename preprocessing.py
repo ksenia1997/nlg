@@ -236,10 +236,13 @@ def prepare_joke_dataset(nlp, reddit_jokes, stupidstuff, wocka):
     data_stupidstuff = load_json(stupidstuff)
     data_wocka = load_json(wocka)
     jokes_train = []
+    jokes_valid = []
     all_data = [data_reddit, data_stupidstuff, data_wocka]
+    counter = 0
     for i in range(len(all_data)):
         # i in [0:2]
         for joke in all_data[i]:
+            counter += 1
             if i == 0:
                 joint_joke = joke["title"] + " " + joke["body"]
             else:
@@ -247,16 +250,25 @@ def prepare_joke_dataset(nlp, reddit_jokes, stupidstuff, wocka):
             joint_joke = JOIN_TOKEN.join(tokenize(joint_joke, nlp)[1])
             if len(joint_joke.split()) > 1000:
                 continue
-            jokes_train.append(joint_joke)
-    return jokes_train
+            if counter % 5 == 0:
+                jokes_valid.append(joint_joke)
+            else:
+                jokes_train.append(joint_joke)
+    return jokes_train, jokes_valid
 
 
 def prepare_lm_dataset(nlp, filename):
     train_data = []
+    valid_data = []
+    counter = 0
     with open(filename, "r") as file:
         for line in file:
-            train_data.append(JOIN_TOKEN.join(tokenize(line, nlp)[1]))
-    return train_data
+            counter += 1
+            if counter % 5 == 0:
+                valid_data.append(JOIN_TOKEN.join(tokenize(line, nlp)[1]))
+            else:
+                train_data.append(JOIN_TOKEN.join(tokenize(line, nlp)[1]))
+    return train_data, valid_data
 
 
 def prepare_short_jokes(nlp, jokes_file):
@@ -341,44 +353,48 @@ def prepare_lm_data(config):
     print("[Preparing Joke data]")
     filename_train_jokes = SAVE_DATA_PATH + 'jokes_'
     if (config["model_lm_type"] == 'GPT2' and not os.path.isfile(filename_train_jokes + "train_gpt2")) or (
-            config["model_lm_type"] == 'LSTM' and not os.path.isfile(filename_train_jokes + ".csv")):
-        train_data_jokes = prepare_joke_dataset(nlp, DATASETS_PATH + 'reddit_jokes.json',
+            config["model_lm_type"] == 'LSTM' and not os.path.isfile(filename_train_jokes + "train.csv")):
+        train_data_jokes, valid_data_jokes = prepare_joke_dataset(nlp, DATASETS_PATH + 'reddit_jokes.json',
                                                 DATASETS_PATH + 'stupidstuff.json',
                                                 DATASETS_PATH + 'wocka.json')
         if config["model_lm_type"] == 'GPT2':
             save_data_for_GPT2(filename_train_jokes + "train_gpt2", train_data_jokes)
         elif config["model_lm_type"] == "LSTM":
-            save_csv_row(filename_train_jokes + ".csv", train_data_jokes)
+            save_csv_row(filename_train_jokes + "train.csv", train_data_jokes)
+            save_csv_row(filename_train_jokes + "valid.csv", valid_data_jokes)
 
     print("[Preparing Poetic data]")
     filename_train_poetic = SAVE_DATA_PATH + 'poetic_'
     if (config["model_lm_type"] == 'GPT2' and not os.path.isfile(filename_train_poetic + "train_gpt2")) or (
-            config["model_lm_type"] == 'LSTM' and not os.path.isfile(filename_train_poetic + ".csv")):
-        train_data_poetic = prepare_lm_dataset(nlp, DATASETS_PATH + "shakespeare.txt")
+            config["model_lm_type"] == 'LSTM' and not os.path.isfile(filename_train_poetic + "train.csv")):
+        train_data_poetic, valid_data_poetic = prepare_lm_dataset(nlp, DATASETS_PATH + "shakespeare.txt")
         # train_data_poetic = prepare_poetic_data(DATASETS_PATH + 'kaggle_poem_dataset.csv', "Content")
         if config["model_lm_type"] == 'GPT2':
             save_data_for_GPT2(filename_train_poetic + "train_gpt2", train_data_poetic)
         elif config["model_lm_type"] == "LSTM":
-            save_csv_row(filename_train_poetic + ".csv", train_data_poetic)
+            save_csv_row(filename_train_poetic + "train.csv", train_data_poetic)
+            save_csv_row(filename_train_poetic + "valid.csv", valid_data_poetic)
 
     print("[Preparing SST dataset]")
     filename_train_negative = SAVE_DATA_PATH + 'negative_'
     if (config["model_lm_type"] == 'GPT2' and not os.path.isfile(filename_train_negative + "train_gpt2")) or (
-            config["model_lm_type"] == 'LSTM' and not os.path.isfile(filename_train_negative + ".csv")):
-        train_data_negative = prepare_lm_dataset(nlp, DATASETS_PATH + "sst_negative_sentences.txt")
+            config["model_lm_type"] == 'LSTM' and not os.path.isfile(filename_train_negative + "train.csv")):
+        train_data_negative, valid_data_negative = prepare_lm_dataset(nlp, DATASETS_PATH + "sst_negative_sentences.txt")
         if config["model_lm_type"] == 'GPT2':
             save_data_for_GPT2(filename_train_negative + "train_gpt2", train_data_negative)
         elif config["model_lm_type"] == "LSTM":
-            save_csv_row(filename_train_negative + ".csv", train_data_negative)
+            save_csv_row(filename_train_negative + "train.csv", train_data_negative)
+            save_csv_row(filename_train_negative + "valid.csv", valid_data_negative)
 
     filename_train_positive = SAVE_DATA_PATH + 'positive_'
     if (config["model_lm_type"] == 'GPT2' and not os.path.isfile(filename_train_positive + "train_gpt2")) or (
-            config["model_lm_type"] == 'LSTM' and not os.path.isfile(filename_train_positive + ".csv")):
-        train_data_positive = prepare_lm_dataset(nlp, DATASETS_PATH + 'sst_positive_sentences.txt')
+            config["model_lm_type"] == 'LSTM' and not os.path.isfile(filename_train_positive + "train.csv")):
+        train_data_positive, valid_data_positive = prepare_lm_dataset(nlp, DATASETS_PATH + 'sst_positive_sentences.txt')
         if config["model_lm_type"] == 'GPT2':
             save_data_for_GPT2(filename_train_positive + "train_gpt2", train_data_positive)
         elif config["model_lm_type"] == "LSTM":
-            save_csv_row(filename_train_positive + ".csv", train_data_positive)
+            save_csv_row(filename_train_positive + "train.csv", train_data_positive)
+            save_csv_row(filename_train_positive + "valid.csv", valid_data_positive)
 
 
 def prepare_seq2seq_data(config):

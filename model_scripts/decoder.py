@@ -20,7 +20,7 @@ class Decoder(nn.Module):
             dropout=float(self.dropout_rate)).to(self.device)
         self.linear = nn.Linear(self.hidden_dim, self.output_dim).to(self.device)
         self.dropout = nn.Dropout(self.dropout_rate).to(self.device)
-        self.log_softmax = F.log_softmax(dim=1)
+
 
     def forward(self, inputs, hidden=None, cell=None):
         inputs = inputs.unsqueeze(0)
@@ -32,7 +32,8 @@ class Decoder(nn.Module):
             output, (hidden, cell) = self.lstm(embedded)
         else:
             output, (hidden, cell) = self.lstm(embedded, (hidden, cell))
-        output = self.log_softmax(self.linear(output.squeeze(0)).to(self.device))
+        print("linear size: ", self.linear(output.squeeze(0).size()))
+        output = F.log_softmax(self.linear(output.squeeze(0)).to(self.device))
         return output, hidden, cell
 
 

@@ -2,7 +2,7 @@ from preprocessing import *
 
 config = {
     "model_lm_type": 'LSTM',  # GPT2|LSTM
-    "feature_based_modifications": True
+    "feature_based_modifications": False
 }
 
 if __name__ == "__main__":

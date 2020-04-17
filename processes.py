@@ -201,23 +201,87 @@ def test_model(nlp, example, vocab, config, models, stylized_score_tensors):
     return trg_tensor
 
 
-def run_model(config):
-
+def run_train_lm_model(config):
     # Specify Fields in dataset
     data_fields = [('source', TEXT), ('target', TEXT)]
     fields = dict(data_fields)
 
     # Build the dataset for train, validation and test sets
-    trn, vld, test = TabularDataset.splits(
+    trn, vld = TabularDataset.splits(
         path="./.data",  # the root directory where the data lies
-        train='train.csv', validation="valid.csv", test='test.csv',
+        train='pre_train.csv', validation="pre_valid.csv",
         format='csv',
         skip_header=True,
         fields=data_fields)
 
     # Build vocabulary
     print("[Building vocabulary]")
-    fields["source"].build_vocab(trn, vectors=GloVe(name='6B', dim=config["embedding_dim"]))
+    fields["source"].build_vocab(vld, vectors=GloVe(name='6B', dim=config["embedding_dim"]))
+    vocab = fields["source"].vocab
+    print("[Length of vocabulary: ", len(vocab), "]")
+
+    print("[Train ", config["style"], " Language model]")
+    model = LM(config, vocab, device)  # .to(device)
+    data_fields = [('source', TEXT)]
+    if config["style"] == 'funny':
+        train_filename = 'jokes_train.csv'
+        valid_filename = 'jokes_valid.csv'
+        save_path = MODEL_SAVE_FUNNY_PATH
+    elif config["style"] == 'poetic':
+        train_filename = 'poetic_train.csv'
+        valid_filename = 'poetic_valid.csv'
+        save_path = MODEL_SAVE_POETIC_PATH
+    elif config["style"] == 'positive':
+        train_filename = 'positive_train.csv'
+        valid_filename = 'positive_valid.csv'
+        save_path = MODEL_SAVE_POSITIVE_PATH
+    elif config["style"] == 'negative':
+        train_filename = 'negative_train.csv'
+        valid_filename = 'negative_valid.csv'
+        save_path = MODEL_SAVE_NEGATIVE_PATH
+
+    # Build the dataset for train, validation and test sets
+    trn, vld = TabularDataset.splits(
+        path="./.data",  # the root directory where the data lies
+        train=train_filename, validation=valid_filename,
+        format='csv',
+        skip_header=True,
+        fields=data_fields)
+    # Create a set of iterators
+    train_iter = BucketIterator(trn,
+                                shuffle=True, sort=False,
+                                batch_size=config["train_batch_size"],
+                                repeat=False,
+                                device=device)
+    valid_iter = BucketIterator(vld,
+                                shuffle=False, sort=False,
+                                batch_size=config["train_batch_size"],
+                                repeat=False,
+                                device=device)
+    for i, batch in enumerate(train_iter):
+        if i < 2:
+            print(batch)
+        else:
+            break
+    fit_model(model, train_iter, valid_iter, config["n_epochs"], config["clip"], save_path)
+
+
+def run_model(config):
+    # Specify Fields in dataset
+    data_fields = [('source', TEXT), ('target', TEXT)]
+    fields = dict(data_fields)
+
+    # Build the dataset for train, validation and test sets
+    trn, vld = TabularDataset.splits(
+        path="./.data",  # the root directory where the data lies
+        train='pre_train.csv', validation="pre_valid.csv",
+        format='csv',
+        skip_header=True,
+        fields=data_fields)
+
+    # Build vocabulary
+    print("[Building vocabulary]")
+    fields["source"].build_vocab(vld, vectors=GloVe(name='6B', dim=config["embedding_dim"]))
     vocab = fields["source"].vocab
     print("[Length of vocabulary: ", len(vocab), "]")
 
@@ -225,7 +289,7 @@ def run_model(config):
         print("[Pretraining]")
         train, valid = TabularDataset.splits(
             path="./.data",
-            train='twitter_train.csv', validation="twitter_valid.csv",
+            train='pre_train.csv', validation="pre_valid.csv",
             format='csv',
             skip_header=True,
             fields=data_fields)
@@ -243,27 +307,27 @@ def run_model(config):
         model = Seq2Seq(config, vocab, device)
         fit_model(model, train_iter, valid_iter, config["n_epochs"], config["clip"], MODEL_PREPROCESS_SAVE_PATH)
 
-    if config["process"] != 'train_lm':
-        # Create a set of iterators
-        train_iter = BucketIterator(trn,
-                                    shuffle=True, sort=False,
-                                    batch_size=config["train_batch_size"],
-                                    repeat=False,
-                                    device=device)
-        valid_iter = BucketIterator(vld,
-                                    shuffle=False, sort=False,
-                                    batch_size=config["train_batch_size"],
-                                    repeat=False,
-                                    device=device)
+    # Create a set of iterators
+    train_iter = BucketIterator(trn,
+                                shuffle=True, sort=False,
+                                batch_size=config["train_batch_size"],
+                                repeat=False,
+                                device=device)
+    valid_iter = BucketIterator(vld,
+                                shuffle=False, sort=False,
+                                batch_size=config["train_batch_size"],
+                                repeat=False,
+                                device=device)
 
-        # print("Most common: ", vocab.freqs.most_common(50))
-        for i, batch in enumerate(train_iter):
-            if i < 2:
-                print(batch)
-            else:
-                break
+    if config["process"] == 'train':
+        print("[Train model]")
+        model = Seq2Seq(config, vocab, device)
+        if config["with_pretrained_model"]:
+            print("[Training with preprocess]")
+            model.load_state_dict(torch.load(MODEL_PREPROCESS_SAVE_PATH, map_location=torch.device(device)))
+        fit_model(model, train_iter, valid_iter, config["n_epochs"], config["clip"], MODEL_SAVE_PATH)
 
-    if config["process"] == 'test':
+    elif config["process"] == 'test':
         style_scores_tensors = []
         models = []
 
@@ -313,46 +377,3 @@ def run_model(config):
         csv_file.close()
         # file_path = "./tests/" + time.strftime('%d-%m-%Y_%H:%M:%S') + ".csv"
         # save_to_csv(file_path, data_to_save)
-
-    elif config["process"] == 'train':
-        print("[Train model]")
-        model = Seq2Seq(config, vocab, device)
-        if config["with_pretrained_model"]:
-            print("[Training with preprocess]")
-            model.load_state_dict(torch.load(MODEL_PREPROCESS_SAVE_PATH, map_location=torch.device(device)))
-        fit_model(model, train_iter, valid_iter, config["n_epochs"], config["clip"], MODEL_SAVE_PATH)
-
-    elif config["process"] == 'train_lm':
-        print("[Train Language model]")
-        model = LM(config, vocab, device)  # .to(device)
-        data_fields = [('source', TEXT)]
-        if config["style"] == 'funny':
-            train_filename = 'jokes_train.csv'
-            valid_filename = 'jokes_valid.csv'
-            test_filename = 'jokes_test.csv'
-            save_path = MODEL_SAVE_FUNNY_PATH
-
-        # Build the dataset for train, validation and test sets
-        trn, vld, test = TabularDataset.splits(
-            path="./.data",  # the root directory where the data lies
-            train=train_filename, validation=valid_filename, test=test_filename,
-            format='csv',
-            skip_header=True,
-            fields=data_fields)
-        # Create a set of iterators
-        train_iter = BucketIterator(trn,
-                                    shuffle=True, sort=False,
-                                    batch_size=config["train_batch_size"],
-                                    repeat=False,
-                                    device=device)
-        valid_iter = BucketIterator(vld,
-                                    shuffle=False, sort=False,
-                                    batch_size=config["train_batch_size"],
-                                    repeat=False,
-                                    device=device)
-        for i, batch in enumerate(train_iter):
-            if i < 2:
-                print(batch)
-            else:
-                break
-        fit_model(model, train_iter, valid_iter, config["n_epochs"], config["clip"], save_path)
