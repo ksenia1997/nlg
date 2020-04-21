@@ -274,7 +274,7 @@ def gpt_sample(gpt2: GPT2Model, seed=None, top_k=3, temperature=1, batch_size=2,
 def bart_gpt2_sample(bart: BartModel, gpt2: GPT2Model, weights, input_tokens, beam_width: int = 0, top_p: float = 0.0,
                      min_len: int = 3, max_len: int = None, max_sentence_count: int = 2, temperature: float = 1.,
                      unk_penalty: float = 0.001, skip_ngram_number: int = 1, block_unigram_counter: int = None,
-                     combine_number: int = 0, block_stop_words: bool = False):
+                     combine_number: int = 0, block_stop_words: bool = False, length_feature: bool = False):
     '''
 
     Args:
@@ -306,6 +306,7 @@ def bart_gpt2_sample(bart: BartModel, gpt2: GPT2Model, weights, input_tokens, be
     decoded_batch = []
     log_softmax = torch.nn.LogSoftmax(dim=1)
     MAX_TOP_P_DIM = 50
+    penalty_eos = 0
 
     with tf.Session(graph=tf.Graph()) as sess:
         init = tf.global_variables_initializer()
@@ -357,7 +358,6 @@ def bart_gpt2_sample(bart: BartModel, gpt2: GPT2Model, weights, input_tokens, be
                 concat_probs = lprobs_bart * weights[0]
 
                 if n.skip_n > 0:
-                    print("skip")
                     n.skip_n -= 1
                 else:
                     gpt_item = gpt2.bart_gpt2_dict[decoder_input[0][-1]]
@@ -393,6 +393,12 @@ def bart_gpt2_sample(bart: BartModel, gpt2: GPT2Model, weights, input_tokens, be
                     concat_probs = lprobs_gpt
                 else:
                     counter = 0
+                if length_feature:
+                    if n.length > max_len - int(max_len / 10):
+                        penalty_eos += 0.1
+                        print("bart eos: ", bart.eos)
+                        concat_probs[bart.eos] = penalty_eos
+
                 if beam_width > 0:
                     log_prob, indexes = torch.topk(concat_probs, beam_width)
                 if top_p > 0.:
@@ -408,17 +414,17 @@ def bart_gpt2_sample(bart: BartModel, gpt2: GPT2Model, weights, input_tokens, be
                     isFirst = True
                     for k in range(indexes.size(1)):
                         word = bart.model.decode(indexes[0][k].unsqueeze(0))
-                        if word not in stop_words:
+                        if str(word).lower().strip() not in stop_words:
                             if isFirst:
-                                new_indexes = indexes[0][k]
-                                new_logp = log_prob[0][k]
+                                new_indexes = indexes[0][k].unsqueeze(0)
+                                new_logp = log_prob[0][k].unsqueeze(0)
                                 isFirst = False
                             else:
-                                new_indexes = torch.cat((new_indexes, indexes[0][k]), 1)
-                                new_logp = torch.cat((new_logp, log_prob[0][k]), 1)
+                                new_indexes = torch.cat((new_indexes, indexes[0][k].unsqueeze(0)), 0)
+                                new_logp = torch.cat((new_logp, log_prob[0][k].unsqueeze(0)), 0)
                     if not isFirst:
-                        indexes = new_indexes
-                        log_prob = new_logp
+                        indexes = new_indexes.unsqueeze(0)
+                        log_prob = new_logp.unsqueeze(0)
                 for new_k in range(indexes.size(1)):
                     decoded_item = indexes[0][new_k].unsqueeze(0).unsqueeze(0)
                     decoded_t = torch.cat((decoder_input, decoded_item), 1)
@@ -431,6 +437,7 @@ def bart_gpt2_sample(bart: BartModel, gpt2: GPT2Model, weights, input_tokens, be
                                 for indxes in idx_2_block[0]:
                                     idx_token = decoded_unique_count[indxes]
                                     node_penalty[0][idx_token] -= 0.01
+
                     log_p = log_prob[0][new_k].item()
                     node = BeamSearchNode(n, decoded_t, n.logp + log_p, n.length + 1, node_penalty, n.skip_n,
                                           n.prev_context_gpt2, max_len)
