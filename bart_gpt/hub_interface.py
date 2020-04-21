@@ -357,7 +357,6 @@ def bart_gpt2_sample(bart: BartModel, gpt2: GPT2Model, weights, input_tokens, be
                 concat_probs = lprobs_bart * weights[0]
 
                 if n.skip_n > 0:
-                    print("skip")
                     n.skip_n -= 1
                 else:
                     gpt_item = gpt2.bart_gpt2_dict[decoder_input[0][-1]]
@@ -380,16 +379,13 @@ def bart_gpt2_sample(bart: BartModel, gpt2: GPT2Model, weights, input_tokens, be
 
                     converted_logits = convert_gpt_idxs_to_bart(logits, lprobs_bart.size(1), gpt2.bart_gpt2_dict)
                     lprobs_gpt = log_softmax(converted_logits)
-                    print("gpt added")
                     concat_probs = concat_probs.add(lprobs_gpt * weights[1])
 
                 node_penalty = n.block_penalty.clone()
                 counter += 1
                 if counter < combine_number:
-                    print("combine number")
                     concat_probs = lprobs_bart
                 elif counter < 2 * combine_number:
-                    print("combine number2")
                     concat_probs = lprobs_gpt
                 else:
                     counter = 0
@@ -408,17 +404,20 @@ def bart_gpt2_sample(bart: BartModel, gpt2: GPT2Model, weights, input_tokens, be
                     isFirst = True
                     for k in range(indexes.size(1)):
                         word = bart.model.decode(indexes[0][k].unsqueeze(0))
-                        if word not in stop_words:
+                        print("Word: ", str(word).lower().strip())
+                        if str(word).lower().strip() not in stop_words:
                             if isFirst:
-                                new_indexes = indexes[0][k]
-                                new_logp = log_prob[0][k]
+                                new_indexes = indexes[0][k].unsqueeze(0)
+                                new_logp = log_prob[0][k].unsqueeze(0)
                                 isFirst = False
                             else:
-                                new_indexes = torch.cat((new_indexes, indexes[0][k]), 1)
-                                new_logp = torch.cat((new_logp, log_prob[0][k]), 1)
+                                new_indexes = torch.cat((new_indexes, indexes[0][k].unsqueeze(0)), 0)
+                                new_logp = torch.cat((new_logp, log_prob[0][k].unsqueeze(0)), 0)
+                        else:
+                            print("WORD is in stop words: ", word)
                     if not isFirst:
-                        indexes = new_indexes
-                        log_prob = new_logp
+                        indexes = new_indexes.unsqueeze(0)
+                        log_prob = new_logp.unsqueeze(0)
                 for new_k in range(indexes.size(1)):
                     decoded_item = indexes[0][new_k].unsqueeze(0).unsqueeze(0)
                     decoded_t = torch.cat((decoder_input, decoded_item), 1)

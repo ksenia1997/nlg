@@ -1,9 +1,9 @@
 import torch
 from fairseq.models.bart import BARTModel
-
+import os
 from hub_interface import BartModel, GPT2Model
 from hub_interface import sample, bart_gpt2_sample, create_idf, greedy_decoding, create_tf_idf
-
+#os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 bart = BARTModel.from_pretrained(
     'fairseq/checkpoints/',
     checkpoint_file='checkpoint_best.pt',
@@ -19,7 +19,7 @@ bsz = 1
 SPECIFICITY = False
 COMBINE_MODELS = True
 GREEDY_GPT2 = False
-with open('../.data/test.source') as source, open('hypotheses/beam_sst_pos55_n3_models.hypo', 'w') as fout:
+with open('../.data/test.source') as source, open('hypotheses/bart_delete_stop_words.hypo', 'w') as fout:
     sline = source.readline().strip()
     slines = [sline]
     if SPECIFICITY:
@@ -40,7 +40,7 @@ with open('../.data/test.source') as source, open('hypotheses/beam_sst_pos55_n3_
             with torch.no_grad():
                 if COMBINE_MODELS:
                     hypotheses_batch = bart_gpt2_sample(bart_model, gpt2, [0.5, 0.5], slines, beam_width=20, top_p=0.,
-                                                        min_len=3, max_len=40, max_sentence_count=4, skip_ngram_number=3)
+                                                        min_len=3, max_len=100, max_sentence_count=4, skip_ngram_number=20, block_stop_words=True)
                 if SPECIFICITY:
                     hypotheses_batch = sample(bart, idf_indexes, slines, beam=3, lenpen=2.0, max_len_b=200, min_len=5,
                                               no_repeat_ngram_size=2)
