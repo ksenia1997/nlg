@@ -380,16 +380,13 @@ def bart_gpt2_sample(bart: BartModel, gpt2: GPT2Model, weights, input_tokens, be
 
                     converted_logits = convert_gpt_idxs_to_bart(logits, lprobs_bart.size(1), gpt2.bart_gpt2_dict)
                     lprobs_gpt = log_softmax(converted_logits)
-                    print("gpt added")
                     concat_probs = concat_probs.add(lprobs_gpt * weights[1])
 
                 node_penalty = n.block_penalty.clone()
                 counter += 1
                 if counter < combine_number:
-                    print("combine number")
                     concat_probs = lprobs_bart
                 elif counter < 2 * combine_number:
-                    print("combine number2")
                     concat_probs = lprobs_gpt
                 else:
                     counter = 0
