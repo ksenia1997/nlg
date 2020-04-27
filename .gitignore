@@ -14,3 +14,4 @@ bart_gpt/dict.txt
 bart_gpt/vocab.bpe
 bart_gpt/bart.large.tar.gz
 bart_gpt/bart.large
+bart_gpt/encoder.json

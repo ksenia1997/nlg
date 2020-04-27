@@ -7,7 +7,7 @@ from hub_interface import sample, bart_gpt2_sample, create_idf, greedy_decoding,
 bart = BARTModel.from_pretrained(
     'fairseq/checkpoints/',
     checkpoint_file='checkpoint_best.pt',
-    data_name_or_path='data_bin'
+    data_name_or_path='data-bin'
 )
 
 bart.cuda()
@@ -19,7 +19,7 @@ bsz = 1
 SPECIFICITY = False
 COMBINE_MODELS = True
 GREEDY_GPT2 = False
-with open('../.data/test.source') as source, open('hypotheses/bart_delete_stop_words.hypo', 'w') as fout:
+with open('../.data/test.source') as source, open('hypotheses/EXPERIMENT.hypo', 'w') as fout:
     sline = source.readline().strip()
     slines = [sline]
     if SPECIFICITY:
