@@ -273,7 +273,7 @@ def run_model(config):
 
     # Build the dataset for train, validation and test sets
     trn, vld = TabularDataset.splits(
-        path="./.data",  # the root directory where the data lies
+        path=SAVE_DATA_PATH,  # the root directory where the data lies
         train='pre_train.csv', validation="pre_valid.csv",
         format='csv',
         skip_header=True,
@@ -302,7 +302,7 @@ def run_model(config):
         fit_model(model, train_iter, valid_iter, config["n_epochs"], config["clip"], MODEL_PREPROCESS_SAVE_PATH)
 
     train, valid = TabularDataset.splits(
-        path="./.data",
+        path=SAVE_DATA_PATH,
         train='persona_train.csv', validation="persona_valid.csv",
         format='csv',
         skip_header=True,

@@ -221,7 +221,7 @@ class GPT2Model(object):
         self.hyper_params = gpt2_model.default_hparams()
         self.eos = '<|endoftext|>'
         self.bart_gpt2_dict = get_bart_tensor_with_gpt2_idxs()
-        self.checkpoint_path = 'checkpoint/run1'
+        self.checkpoint_path = 'checkpoint_gpt'
         with open(os.path.join('models', '117M', 'hparams.json')) as f:
             self.hyper_params.override_from_dict(json.load(f))
 

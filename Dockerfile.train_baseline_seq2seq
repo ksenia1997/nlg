@@ -4,6 +4,8 @@ RUN pip install -U spacy
 RUN pip install -U nltk
 RUN python3 -m spacy download en
 RUN pip install torch torchvision
+RUN pip install torchtext
+RUN pip install tensorboard==1.14.0
 
 RUN python3 /app/run_preparing_seq2seq_data.py
 RUN python3 /app/run_baseline_model.py
