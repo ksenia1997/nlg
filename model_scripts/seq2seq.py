@@ -33,8 +33,6 @@ class Seq2Seq(nn.Module):
     def forward(self, src, trg, pad_token):
         # src [seq_len, batch_size]
         # trg [seq_len, batch_size]
-        print("src seq2seq: ", src.size())
-        print("trg seq2seq: ", trg.size())
 
         max_len, batch_size = trg[0].size()
         outputs = torch.zeros(max_len, batch_size, self.decoder.output_dim).to(self.device)

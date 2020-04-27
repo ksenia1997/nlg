@@ -1,0 +1,5 @@
+FROM python:3.7
+COPY . /app
+
+RUN python3 /app/run_preparing_lm_data.py
+RUN python3 /app/run_lstm_based_model.py
