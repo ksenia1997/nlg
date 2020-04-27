@@ -8,7 +8,7 @@ config = {"train_batch_size": 32,
           "n_epochs": 10,
           "clip": 10,
           "teacher_forcing_ratio": 0.1,
-          "with_attention": False,  # only for seq2seq model
+          "with_attention": True,  # only for seq2seq model
           "attention_model": 'concat',  # dot|general|concat
           "decoding_type": 'beam',  # beam|greedy|weighted_beam
           "beam_width": 4,

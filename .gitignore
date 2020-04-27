@@ -6,7 +6,12 @@
 __pycache__
 utils/__pycache__
 bart_gpt/fairseq
-bart_gpt/data_bin/
+bart_gpt/data-bin/
 bart_gpt/gpt/
 bart_gpt/models/
 bart_gpt/checkpoint/
+bart_gpt/dict.txt
+bart_gpt/vocab.bpe
+bart_gpt/bart.large.tar.gz
+bart_gpt/bart.large
+bart_gpt/encoder.json
