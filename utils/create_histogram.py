@@ -4,17 +4,17 @@ from collections import defaultdict
 import matplotlib.pyplot as plt
 
 
-def plot_histogram(title, xlabel, ylabel, data1, data2,  label1, label2, filename):
-    #plt.figure(figsize=[8, 4])
+def plot_histogram(title, xlabel, ylabel, data1, data2, label1, label2, filename):
     if label1 is None and label2 is None and data2 is None:
         plt.hist(data1, bins=50)
     else:
-        n, bins, patches = plt.hist([data1, data2],  histtype='bar', label=[label1, label2])
+        n, bins, patches = plt.hist([data1, data2], histtype='bar', label=[label1, label2])
         plt.legend(prop={'size': 10})
     plt.xlabel(xlabel)
     plt.ylabel(ylabel)
     plt.title(title)
     plt.savefig(filename)
+    plt.clf()
     # plt.show()
 
 
@@ -49,8 +49,8 @@ def create_persona_histograms():
     utr2_length.sort()
     plot_histogram('Histogram of persona description lengths', 'number of words in description',
                    'number of descriptions', yp_desc, pp_desc, 'person1', 'person2', 'persona_desc.pdf')
-    plot_histogram('Histogram of utterances\' lengths', 'number of words in utterance',
-                   'number of utterances', utr1_length, utr2_length, 'person1', 'person2', 'uttr_length.pdf')
+    plot_histogram('Histogram of sequences\' lengths', 'number of words in a sequence',
+                   'number of sequences', utr1_length, utr2_length, 'person1', 'person2', 'uttr_length.pdf')
 
 
 def create_joke_histogram():
@@ -76,17 +76,16 @@ def create_sst_histogram():
     pos_columns = load_histogram_data('../datasets/sst_positive_lengths.csv')
     pos_lengths = pos_columns['lengths']
     pos_lengths.sort()
-    plot_histogram('Histogram of SST utterances\' lengths', 'number of words in an utterance',
-                   'number of utterances', neg_lengths, pos_lengths, 'negative', 'positive', 'sst.pdf')
+    plot_histogram('Histogram of SST sequences\' lengths', 'number of words in a sequence',
+                   'number of sequences', neg_lengths, pos_lengths, 'negative', 'positive', 'sst.pdf')
 
 
 def create_shakespear_histogram():
     columns = load_histogram_data('../datasets/shakespeare_lengths.csv')
     lengths = columns['lengths']
     lengths.sort()
-    plot_histogram('Histogram of Shakespeare\'s plays', 'number of words in an utterance',
-                   'number of utterances', lengths, None, None, None, 'shakespeare.pdf')
+    plot_histogram('Histogram of Shakespeare\'s plays', 'number of words in a sequence',
+                   'number of sequences', lengths, None, None, None, 'shakespeare.pdf')
 
 
-
-create_shakespear_histogram()
+create_persona_histograms()

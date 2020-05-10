@@ -39,7 +39,7 @@ with open('../.data/test.source') as source, open('hypotheses/EXPERIMENT.hypo', 
         if count % bsz == 0:
             with torch.no_grad():
                 if COMBINE_MODELS:
-                    hypotheses_batch = bart_gpt2_sample(bart_model, gpt2, [0.5, 0.5], slines, beam_width=20, top_p=0.,
+                    hypotheses_batch = bart_gpt2_sample(bart_model, gpt2, [0.5, 0.5], slines, beam_width=20, top_p=0., sample_num= 10,
                                                         min_len=3, max_len=100, max_sentence_count=4, skip_ngram_number=20, block_stop_words=True)
                 if SPECIFICITY:
                     hypotheses_batch = sample(bart, idf_indexes, slines, beam=3, lenpen=2.0, max_len_b=200, min_len=5,

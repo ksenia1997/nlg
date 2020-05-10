@@ -21,7 +21,7 @@ def save_data_in_column(filename, data_to_zip, columns_names):
     csv_file.close()
 
 
-def shakespeare():
+def process_sst_to_csv():
     lengths = []
     with open('../datasets/sst_positive_sentences.txt', 'r') as file:
         for line in file:
@@ -32,4 +32,4 @@ def shakespeare():
     save_data_in_column("sst_pos_lengths.csv", lengths, ["lengths"])
 
 
-shakespeare()
+process_sst_to_csv()

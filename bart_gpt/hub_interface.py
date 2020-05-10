@@ -272,7 +272,7 @@ def gpt_sample(gpt2: GPT2Model, seed=None, top_k=3, temperature=1, batch_size=2,
 
 
 def bart_gpt2_sample(bart: BartModel, gpt2: GPT2Model, weights, input_tokens, beam_width: int = 0, top_p: float = 0.0,
-                     min_len: int = 3, max_len: int = None, max_sentence_count: int = 2, temperature: float = 1.,
+                     sample_num: int = 3, min_len: int = 3, max_len: int = None, max_sentence_count: int = 2, temperature: float = 1.,
                      unk_penalty: float = 0.001, skip_ngram_number: int = 1, block_unigram_counter: int = None,
                      combine_number: int = 0, block_stop_words: bool = False, length_feature: bool = False):
     '''
@@ -398,15 +398,19 @@ def bart_gpt2_sample(bart: BartModel, gpt2: GPT2Model, weights, input_tokens, be
 
                 if beam_width > 0:
                     log_prob, indexes = torch.topk(concat_probs, beam_width)
-                if top_p > 0.:
+                if top_p > 0.0:
                     sorted_logits, sorted_indices = torch.sort(concat_probs, descending=True)
                     sigmoid_logs = F.softmax(sorted_logits, dim=1)
                     cum_sum = torch.cumsum(sigmoid_logs, 1)
                     logits_top_p = cum_sum < top_p
                     indexes = sorted_indices[logits_top_p].unsqueeze(0)
                     log_prob = sorted_logits[logits_top_p].unsqueeze(0)
-                    indexes = indexes[0][:MAX_TOP_P_DIM].unsqueeze(0)
-                    log_prob = log_prob[0][:MAX_TOP_P_DIM].unsqueeze(0)
+                    log_prob = log_prob / top_p
+                    cum_sum = torch.cumsum(log_prob, 1)
+                    for i in range(sample_num):
+                        pst = random.uniform(0, 1)
+                        log_pst = cum_sum < pst
+
                 if block_stop_words:
                     isFirst = True
                     for k in range(indexes.size(1)):

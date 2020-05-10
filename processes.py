@@ -395,5 +395,5 @@ def run_model(config):
                     print("[SOURCE: ", test_data[i], "]")
                     print("[TARGET: ", answer, "]")
         csv_file.close()
-        # file_path = "./tests/" + time.strftime('%d-%m-%Y_%H:%M:%S') + ".csv"
-        # save_to_csv(file_path, data_to_save)
+        file_path = "./tests/" + time.strftime('%d-%m-%Y_%H:%M:%S') + ".csv"
+        save_to_csv(file_path, data_to_save)
