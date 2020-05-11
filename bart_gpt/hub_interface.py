@@ -272,9 +272,10 @@ def gpt_sample(gpt2: GPT2Model, seed=None, top_k=3, temperature=1, batch_size=2,
 
 
 def bart_gpt2_sample(bart: BartModel, gpt2: GPT2Model, weights, input_tokens, beam_width: int = 0, top_p: float = 0.0,
-                     sample_num: int = 3, min_len: int = 3, max_len: int = None, max_sentence_count: int = 2, temperature: float = 1.,
-                     unk_penalty: float = 0.001, skip_ngram_number: int = 1, block_unigram_counter: int = None,
-                     combine_number: int = 0, block_stop_words: bool = False, length_feature: bool = False):
+                     sample_num: int = 3, min_len: int = 3, max_len: int = None, max_sentence_count: int = 2,
+                     temperature: float = 1., unk_penalty: float = 0.001, skip_ngram_number: int = 1,
+                     block_unigram_counter: int = None, combine_number: int = 0, block_stop_words: bool = False,
+                     length_feature: bool = False):
     '''
 
     Args:
@@ -405,11 +406,26 @@ def bart_gpt2_sample(bart: BartModel, gpt2: GPT2Model, weights, input_tokens, be
                     logits_top_p = cum_sum < top_p
                     indexes = sorted_indices[logits_top_p].unsqueeze(0)
                     log_prob = sorted_logits[logits_top_p].unsqueeze(0)
-                    log_prob = log_prob / top_p
-                    cum_sum = torch.cumsum(log_prob, 1)
+                    sigmoid_logs = sigmoid_logs[logits_top_p].unsqueeze(0)
+                    normalized_prob = sigmoid_logs / top_p
+                    cum_sum = torch.cumsum(normalized_prob, 1)
+                    sampled_indexes = []
+                    sampled_probs = []
                     for i in range(sample_num):
                         pst = random.uniform(0, 1)
-                        log_pst = cum_sum < pst
+                        top_probs = cum_sum < pst
+                        n_indexes = indexes[top_probs]
+                        n_probs = log_prob[top_probs]
+                        if n_indexes.size(0) == 0:
+                            index = sorted_indices[0][0]
+                            prob = sorted_logits[0][0]
+                        else:
+                            index = n_indexes[-1]
+                            prob = n_probs[-1]
+                        sampled_indexes.append(index)
+                        sampled_probs.append(prob)
+                    indexes = torch.tensor(sampled_indexes, dtype=torch.long).unsqueeze(0).to(device)
+                    log_prob = torch.FloatTensor(sampled_probs).unsqueeze(0).to(device)
 
                 if block_stop_words:
                     isFirst = True

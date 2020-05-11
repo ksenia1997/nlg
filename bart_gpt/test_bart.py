@@ -7,7 +7,7 @@ from hub_interface import sample, bart_gpt2_sample, create_idf, greedy_decoding,
 bart = BARTModel.from_pretrained(
     'fairseq/checkpoints/',
     checkpoint_file='checkpoint_best.pt',
-    data_name_or_path='data-bin'
+    data_name_or_path='data_bin'
 )
 
 bart.cuda()
@@ -23,15 +23,11 @@ with open('../.data/test.source') as source, open('hypotheses/EXPERIMENT.hypo', 
     sline = source.readline().strip()
     slines = [sline]
     if SPECIFICITY:
-        #idf_indexes = None
         idf_indexes = create_idf(bart)
-        #idf_indexes = create_tf_idf(bart, "../datasets/sst_positive_sentences.txt")
     bart_model = BartModel(bart)
     gpt2 = GPT2Model()
     for sline in source:
         if GREEDY_GPT2:
-            # gpt_sample(gpt2)
-            # exit()
             dec = greedy_decoding(gpt2, 10)
             fout.write(dec + '\n')
             fout.flush()

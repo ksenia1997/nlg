@@ -6,7 +6,7 @@ UPDATE_FREQ=4
 BART_PATH=./bart/bart.large/model.pt # direction to the BART model.pt
 
 
-CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 python3 fairseq/train.py data-bin \
+CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 python3 fairseq/train.py data_bin \
     --restore-file $BART_PATH \
     --max-tokens $MAX_TOKENS \
     --task translation \
