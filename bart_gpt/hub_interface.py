@@ -356,7 +356,7 @@ def bart_gpt2_sample(bart: BartModel, gpt2: GPT2Model, weights, input_tokens, be
                 lprobs_bart[:, bart.pad] = -math.inf  # never select pad
                 lprobs_bart[:, bart.unk] -= unk_penalty  # apply unk penalty
                 concat_probs = lprobs_bart * weights[0]
-
+                print("iter")
                 if n.skip_n > 0:
                     n.skip_n -= 1
                 else:
@@ -392,7 +392,7 @@ def bart_gpt2_sample(bart: BartModel, gpt2: GPT2Model, weights, input_tokens, be
                     counter = 0
                 if length_feature:
                     if n.length > max_len - int(max_len / 10):
-                        penalty_eos += 0.1
+                        penalty_eos += 0.01
                         print("bart eos: ", bart.eos)
                         concat_probs[bart.eos] = penalty_eos
 
@@ -400,16 +400,47 @@ def bart_gpt2_sample(bart: BartModel, gpt2: GPT2Model, weights, input_tokens, be
                     log_prob, indexes = torch.topk(concat_probs, beam_width)
                 if top_p > 0.0:
                     sorted_logits, sorted_indices = torch.sort(concat_probs, descending=True)
+                    #print("sorted logits: ", sorted_logits, sorted_logits.size())
+                    #print("sorted indices: ", sorted_indices, sorted_indices.size())
                     sigmoid_logs = F.softmax(sorted_logits, dim=1)
+                    #print("sigmoid logs: ", sigmoid_logs, sigmoid_logs.size())
                     cum_sum = torch.cumsum(sigmoid_logs, 1)
+                    #print("cum sum: ", cum_sum, cum_sum.size())
                     logits_top_p = cum_sum < top_p
+                    #print("logits_top_p: ", logits_top_p, logits_top_p.size())
                     indexes = sorted_indices[logits_top_p].unsqueeze(0)
                     log_prob = sorted_logits[logits_top_p].unsqueeze(0)
-                    log_prob = log_prob / top_p
-                    cum_sum = torch.cumsum(log_prob, 1)
+                    #print("indexes: ", indexes, indexes.size())
+                    #print("log_prob: ", log_prob, log_prob.size())
+                    sigmoid_logs = sigmoid_logs[logits_top_p].unsqueeze(0)
+                    #print("sigmoid logs: ", sigmoid_logs, sigmoid_logs.size() )
+                    normalized_prob = sigmoid_logs / top_p
+                    #print("resampled: ", normalized_prob, normalized_prob.size())
+                    cum_sum = torch.cumsum(normalized_prob, 1)
+                    #print("cum sum: ", cum_sum, cum_sum.size())
+                    sampled_indexes = []
+                    sampled_probs = []
                     for i in range(sample_num):
                         pst = random.uniform(0, 1)
-                        log_pst = cum_sum < pst
+                        print("PST: ", pst)
+                        top_probs = cum_sum < pst
+                        n_indexes = indexes[top_probs]
+                        n_probs = log_prob[top_probs]
+                        if n_indexes.size(0) == 0:
+                            index = sorted_indices[0][0]
+                            prob = sorted_logits[0][0]
+                        else:
+                            index = n_indexes[-1]
+                            prob = n_probs[-1]
+                        sampled_indexes.append(index)
+                        sampled_probs.append(prob)
+                        #print("index: ", index)
+                        #print("prob: ", prob)
+                    sample_num = 1
+                    indexes = torch.tensor(sampled_indexes, dtype=torch.long).unsqueeze(0).to(device)
+                    log_prob = torch.FloatTensor(sampled_probs).unsqueeze(0).to(device)
+                    print("sampled_indexes: ", indexes, indexes.size())
+                    print("sampled_probs: ", log_prob, log_prob.size())
 
                 if block_stop_words:
                     isFirst = True
