@@ -146,7 +146,6 @@ def beam_decode(vocab, beam_width, max_len, topk, decoder, with_attention, targe
     :param encoder_outputs: if you are using attention mechanism you can pass encoder outputs, [T, B, H] where T is the maximum length of input sentence
     :return: decoded_batch
     '''
-    print("Beam decode")
     decoded_batch = []
     sentences = ""
 

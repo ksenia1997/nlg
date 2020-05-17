@@ -13,7 +13,7 @@ class LM(nn.Module):
         super().__init__()
         self.device = device
         self.decoder = Decoder(config, vocab, device)
-        experiment_name = "train_LM_" + config["style"] + "_model_" + time.strftime('%d-%m-%Y_%H:%M:%S')
+        experiment_name = "train_LM_model_" + time.strftime('%d-%m-%Y_%H:%M:%S')
         tensorboard_log_dir = './tensorboard-logs/{}/'.format(experiment_name)
         self.tb = SummaryWriter(tensorboard_log_dir)
 

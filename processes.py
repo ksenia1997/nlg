@@ -166,7 +166,6 @@ def fit_model(model, train_iter, valid_iter, n_epochs, clip, model_path):
         if valid_loss < best_validation_loss:
             best_validation_loss = valid_loss
             save_best_model(model, model_path)
-            # torch.save(model.state_dict(), model_path)
         print(f'Epoch: {epoch + 1:02} | Time: {epoch_mins}m {epoch_secs}s')
         print(f'\tTrain Loss: {train_loss:.3f} | Train PPL: {math.exp(train_loss):7.3f}')
         print(f'\t Val. Loss: {valid_loss:.3f} |  Val. PPL: {math.exp(valid_loss):7.3f}')
@@ -285,7 +284,7 @@ def run_model(config):
     vocab = fields["source"].vocab
     print("[Length of vocabulary: ", len(vocab), "]")
 
-    if config["pretraining"]:
+    if config["pretraining"] and config["process"] == 'train':
         print("[Pretraining]")
         # Create a set of iterators
         train_iter = BucketIterator(trn,
@@ -337,8 +336,8 @@ def run_model(config):
         models.append(model)
         weights = []
         if config['is_stylized_generation']:
-
             if config["with_stylized_lm"]:
+                weights.append(float(config["baseline_weight"]))
                 weights.append(float(config["jokes_weight"]))
                 weights.append(float(config["poetic_weight"]))
                 weights.append(float(config["positive_weight"]))

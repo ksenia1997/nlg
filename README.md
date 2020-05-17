@@ -130,5 +130,31 @@ docker build  -f Dockerfile.train_baseline_lm -t lm .
 docker run lm
 ```
 
+### Install trained models
+
+#### GPT-2 trained models
+
+FIELD = 19PdWLx1QDCGy0oWCK-EMami8GA4kXvwW **positive sentiment**
+
+FIELD = 1fPniUOzr25VUD28hxpopMdnbjti-7Yzn **negative sentiment**
+
+FIELD = 1t7gIsRDy1j8STHsrM23H985mV2hhFqRi **poetic style**
+
+FIELD = 1SircabUBU5qL_hZWxC7o0qVdXIJyiKT6 **humor style**
+
+#### BART
+
+FIELD = 1KUw8EkdWMp4cEYOA7cTttOeaxdzQU6YJ
+
+#### Baseline models
+
+FIELD = 1NdjavQxtXSMulTj9i1ucLfn0ws13_WGM
+```
+wget --save-cookies cookies.txt 'https://docs.google.com/uc?export=download&id=FIELD' -O-      | sed -rn 's/.*confirm=([0-9A-Za-z_]+).*/\1/p' > confirm.txt
+
+wget --load-cookies cookies.txt -O fi.zip  'https://docs.google.com/uc?export=download&id=FIELD&confirm='$(<confirm.txt)
+
+```
+
  
 

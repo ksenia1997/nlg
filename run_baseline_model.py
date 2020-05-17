@@ -20,10 +20,11 @@ config = {"train_batch_size": 32,
           "is_stylized_generation": True,  # while testing generate text with different styles
           "with_controlling_attributes": True,  # if "is_stylized_generation" is True
           "with_stylized_lm": False,  # if "is_stylized_generation" is True
-          "jokes_weight": 0.25,
-          "poetic_weight": 0.25,
-          "positive_weight": 0.25,
-          "negative_weight": 0.25
+          "baseline_weight": 0.2,
+          "jokes_weight": 0.2,
+          "poetic_weight": 0.2,
+          "positive_weight": 0.2,
+          "negative_weight": 0.2
           }
 
 if __name__ == "__main__":
