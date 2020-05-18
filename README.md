@@ -149,7 +149,9 @@ To run the pre-trained models such as BART and GPT-2, go to the **bart_gpt** dir
 Please install **conda** https://docs.conda.io/projects/conda/en/latest/user-guide/install/index.html
 for using GPU.
 
-CUDA version is 10.1
+CUDA version is 10.1 \
+conda 4.8.3
+
 ```
 pip install -r requirements.txt
 python3 -m spacy download en_core_web_sm
@@ -201,3 +203,6 @@ Follow the instructions in *./nlg/bart_gpt/README.md*
 Results from **basemodel** are saved in *nlg/tests*
 
 Results from **state-of-the-art** models are saved in *nlg/bart_gpt/hypotheses*
+
+## Github
+https://github.com/ksenia1997/nlg

@@ -8,10 +8,10 @@
 ```
 pip install -r requirements.txt
 pip install torch==1.5.0+cu101 torchvision==0.6.0+cu101 -f https://download.pytorch.org/whl/torch_stable.html
-
 ```
 # BART
-Anaconda is necessary! CUDA version 10.1
+Anaconda is necessary! CUDA version is 10.1, conda 4.8.3
+
 ### Download and Install fairseq 
 ```
 # In the directory nlg/bart_gpt
@@ -41,7 +41,6 @@ bash binarize_dataset.sh
 bash fine_tune.sh
 # In the directory nlg/
 export PYTHONPATH=nlg/bart_gpt/fairseq:$PYTHONPATH
-python3 nlg/bart_gpt/test_bart.py
 ```
 
 
@@ -66,4 +65,14 @@ python ./train.py --dataset /path/to/encoded.npz
 ```
 mkdir nlg/bart_gpt/checkpoint_gpt
 cp -R /path/to/generated/checkpoints ./checkpoint_gpt/
+```
+
+## Run state-of-the-art models
+
+SPECIFICITY is used for controlling specificity (NIDF metric).\
+COMBINE_MODELS is used for weighted decoding.
+
+Set necessary parameters in config in test_bart.py
+```
+python3 nlg/bart_gpt/test_bart.py
 ```
