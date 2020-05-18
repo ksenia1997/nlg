@@ -285,15 +285,17 @@ def bart_gpt2_sample(bart: BartModel, gpt2: GPT2Model, weights, input_tokens, be
         input_tokens: array of inputs
         beam_width: parameter for Beam Search
         top_p: parameter for Nucleus Sampling
-        min_len:
-        max_len:
+        sample_num: number of samples for Nucleus sampling
+        min_len: min length of a generated sequence
+        max_len: max length of a generated sequence| None if controlling length feature is used
         max_sentence_count: number of sentences generated for 1 input
-        temperature:
-        unk_penalty:
-        skip_ngram_number:
-        block_unigram_counter:
-        combine_number:
-        block_stop_words:
+        temperature: parameter for temperature sampling
+        unk_penalty: penalty for unk in BART model
+        skip_ngram_number: number of first words what would be generated only by BART model
+        block_unigram_counter: number of max repeating a word in a sequence
+        combine_number: n for switching models
+        block_stop_words: feature of blocking stop words
+        length_feature: feature of controlling length
 
     Returns: array of generated hypotheses
 

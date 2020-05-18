@@ -73,7 +73,7 @@ with open('../.data/test.source') as source, open(save_filename, 'w') as fout:
                 fout.write(hypothesis + '\n')
                 fout.flush()
                 if count % bsz == 0:
-                    print("H: ", hypothesis)
+                    print("Hypothesis: ", hypothesis)
             slines = []
 
         slines.append(sline.strip())
