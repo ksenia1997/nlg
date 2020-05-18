@@ -104,7 +104,7 @@ The parameter *with_stylized_lm* represents the weighted decoding.
 
 Parameters *jokes_weight*, *poetic_weight*, *positive_weight*, *negative_weight* represents weights of each style for weighted decoding. 
 
-### Download trained models
+## Download trained models
 
 ```
 wget --save-cookies cookies.txt 'https://docs.google.com/uc?export=download&id=FIELD' -O- | sed -rn 's/.*confirm=([0-9A-Za-z_]+).*/\1/p' > confirm.txt
@@ -148,6 +148,8 @@ To run the pre-trained models such as BART and GPT-2, go to the **bart_gpt** dir
 
 Please install **conda** https://docs.conda.io/projects/conda/en/latest/user-guide/install/index.html
 for using GPU.
+
+CUDA version is 10.1
 ```
 pip install -r requirements.txt
 python3 -m spacy download en_core_web_sm
@@ -194,3 +196,8 @@ python3 run_baseline_model.py
 
 Follow the instructions in *./nlg/bart_gpt/README.md*
 
+## Results
+
+Results from **basemodel** are saved in *nlg/tests*
+
+Results from **state-of-the-art** models are saved in *nlg/bart_gpt/hypotheses*

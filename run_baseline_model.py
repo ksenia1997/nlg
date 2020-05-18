@@ -19,7 +19,7 @@ config = {"train_batch_size": 32,
           "process": 'test',  # train|test
           "is_stylized_generation": True,  # while testing generate text with different styles
           "with_controlling_attributes": True,  # if "is_stylized_generation" is True
-          "with_stylized_lm": False,  # if "is_stylized_generation" is True
+          "with_stylized_lm": True,  # if "is_stylized_generation" is True| Weighted Decoding
           "baseline_weight": 0.2,
           "jokes_weight": 0.2,
           "poetic_weight": 0.2,
