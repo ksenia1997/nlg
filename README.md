@@ -4,7 +4,7 @@ The main purpose of this thesis was to create a dialogue system, which is able t
 text in different styles and control the manifestation of each style.
 
 ## Datasets processing
-Files run_preparing_lm_data.py and run_preparing_seq2seq_data.py prepare datasets for the model training.
+Files **run_preparing_lm_data.py** and **run_preparing_seq2seq_data.py** prepare datasets for the model training.
 
 A config for preparing datasets for the **stylized language models**:
 ```
@@ -38,7 +38,7 @@ Persona-Chat has descriptions of people, and it is possible to choose whether th
 
 ## Models training and testing
 
-A config from *run_lstm_based_model.py*
+A config from **run_lstm_based_model.py**
 ```
 config = {"train_batch_size": 32,
           "embedding_dim": 300,
@@ -53,7 +53,7 @@ config = {"train_batch_size": 32,
 ```
 There are parameters only for the stylized language model training. (Before running this script, it is necessary to prepare datasets)
 
-A config from *run_baseline_model.py*
+A config from **run_baseline_model.py**
 ```
 config = {"train_batch_size": 32,
           "embedding_dim": 300,
@@ -104,7 +104,44 @@ The parameter *with_stylized_lm* represents the weighted decoding.
 
 Parameters *jokes_weight*, *poetic_weight*, *positive_weight*, *negative_weight* represents weights of each style for weighted decoding. 
 
+### Download trained models
+
+```
+wget --save-cookies cookies.txt 'https://docs.google.com/uc?export=download&id=FIELD' -O- | sed -rn 's/.*confirm=([0-9A-Za-z_]+).*/\1/p' > confirm.txt
+
+wget --load-cookies cookies.txt -O NAME.zip  'https://docs.google.com/uc?export=download&id=FIELD&confirm='$(<confirm.txt)
+
+```
+#### GPT-2 trained models
+
+FIELD = 19PdWLx1QDCGy0oWCK-EMami8GA4kXvwW **positive sentiment**
+
+FIELD = 1fPniUOzr25VUD28hxpopMdnbjti-7Yzn **negative sentiment**
+
+FIELD = 1t7gIsRDy1j8STHsrM23H985mV2hhFqRi **poetic style**
+
+FIELD = 1SircabUBU5qL_hZWxC7o0qVdXIJyiKT6 **humor style**
+
+move extracted files to the *./nlg/bart_gpt/checkpoint_gpt/* , but only for one style.
+#### BART
+
+FIELD = 1KUw8EkdWMp4cEYOA7cTttOeaxdzQU6YJ
+
+move extracted file of the trained model to the *./nlg/bart_gpt/fairseq/checkpoints/*
+
+#### Baseline models
+
+FIELD = 1NdjavQxtXSMulTj9i1ucLfn0ws13_WGM
+
+move extracted files of trained models to ./nlg/checkpoints
+```
+mkdir nlg/bart_gpt/fairseq/checkpoints # in ./nlg/bart_gpt/fairseq if the directory does not exist
+
+```
+
 ## Installation
+
+Please install Python3.7 and pip
 
 This section describes what should be installed to run Baseline model.
 To run the pre-trained models such as BART and GPT-2, go to the **bart_gpt** directory. There is a README.md for pre-trained models installation and fine-tuning.
@@ -113,6 +150,7 @@ Please install **conda** https://docs.conda.io/projects/conda/en/latest/user-gui
 for using GPU.
 ```
 pip install -r requirements.txt
+python3 -m spacy download en_core_web_sm
 ```
 ### Docker 
 Installation and running Baseline model with Docker:
@@ -130,31 +168,29 @@ docker build  -f Dockerfile.train_baseline_lm -t lm .
 docker run lm
 ```
 
-### Install trained models
-
-#### GPT-2 trained models
-
-FIELD = 19PdWLx1QDCGy0oWCK-EMami8GA4kXvwW **positive sentiment**
-
-FIELD = 1fPniUOzr25VUD28hxpopMdnbjti-7Yzn **negative sentiment**
-
-FIELD = 1t7gIsRDy1j8STHsrM23H985mV2hhFqRi **poetic style**
-
-FIELD = 1SircabUBU5qL_hZWxC7o0qVdXIJyiKT6 **humor style**
-
-#### BART
-
-FIELD = 1KUw8EkdWMp4cEYOA7cTttOeaxdzQU6YJ
-
-#### Baseline models
-
-FIELD = 1NdjavQxtXSMulTj9i1ucLfn0ws13_WGM
+## Run models for training or testing
+### Basemodel
+set 'model_lm_type' to 'LSTM' in **run_preparing_lm_data.py**
 ```
-wget --save-cookies cookies.txt 'https://docs.google.com/uc?export=download&id=FIELD' -O-      | sed -rn 's/.*confirm=([0-9A-Za-z_]+).*/\1/p' > confirm.txt
-
-wget --load-cookies cookies.txt -O fi.zip  'https://docs.google.com/uc?export=download&id=FIELD&confirm='$(<confirm.txt)
-
+python3 run_preparing_lm_data.py
+```
+set 'model_seq2seq_type' to 'Basemodel' in **run_preparing_seq2seq_data.py**
+```
+python3 run_preparing_seq2seq_data.py
 ```
 
- 
+For *testing*:
+set 'process' to 'test' in **run_baseline_model.py**
+
+For *training*: 
+set 'process' to 'train' in **run_baseline_model.py**
+
+Before it is necessary to train LM models (**run_lstm_based_models.py**) with all styles ('style'=funny|poetic|positive|negative).
+```
+python3 run_baseline_model.py
+```
+
+### State-of-the-art models
+
+Follow the instructions in *./nlg/bart_gpt/README.md*
 

@@ -342,9 +342,6 @@ def bart_gpt2_sample(bart: BartModel, gpt2: GPT2Model, weights, input_tokens, be
                 score, n = nodes.get()
                 decoder_input = n.word_ids
                 if (n.word_ids[0][-1].item() == bart.eos and n.prev_node is not None) or n.length >= n.max_len:
-                    print("max len: ", n.max_len)
-                    print("n len: ", n.length)
-                    print("last item: ", n.word_ids[0][-1].item())
                     if n.length < min_len:
                         continue
                     endnodes.append((score, n))
@@ -357,7 +354,6 @@ def bart_gpt2_sample(bart: BartModel, gpt2: GPT2Model, weights, input_tokens, be
                 lprobs_bart[:, bart.pad] = -math.inf  # never select pad
                 lprobs_bart[:, bart.unk] -= unk_penalty  # apply unk penalty
                 concat_probs = lprobs_bart * weights[0]
-                print("iter")
                 if n.skip_n > 0:
                     n.skip_n -= 1
                 else:
@@ -394,21 +390,15 @@ def bart_gpt2_sample(bart: BartModel, gpt2: GPT2Model, weights, input_tokens, be
                 if length_feature:
                     if n.length > max_len - int(max_len / 10):
                         penalty_eos += 0.01
-                        print("bart eos: ", bart.eos)
                         concat_probs[bart.eos] = penalty_eos
 
                 if beam_width > 0:
                     log_prob, indexes = torch.topk(concat_probs, beam_width)
                 if top_p > 0.0:
                     sorted_logits, sorted_indices = torch.sort(concat_probs, descending=True)
-                    #print("sorted logits: ", sorted_logits, sorted_logits.size())
-                    #print("sorted indices: ", sorted_indices, sorted_indices.size())
                     sigmoid_logs = F.softmax(sorted_logits, dim=1)
-                    #print("sigmoid logs: ", sigmoid_logs, sigmoid_logs.size())
                     cum_sum = torch.cumsum(sigmoid_logs, 1)
-                    #print("cum sum: ", cum_sum, cum_sum.size())
                     logits_top_p = cum_sum < top_p
-                    #print("logits_top_p: ", logits_top_p, logits_top_p.size())
                     indexes = sorted_indices[logits_top_p].unsqueeze(0)
                     log_prob = sorted_logits[logits_top_p].unsqueeze(0)
                     sigmoid_logs = sigmoid_logs[logits_top_p].unsqueeze(0)
@@ -474,7 +464,6 @@ def bart_gpt2_sample(bart: BartModel, gpt2: GPT2Model, weights, input_tokens, be
             for score, n in sorted(endnodes, key=operator.itemgetter(0)):
                 sentence = bart.model.decode(n.word_ids.squeeze(0))
                 sentence = sentence.replace('\n', ' ')
-                print("decoded sentence: ", sentence)
                 beam_sentences.append(sentence)
             decoded_batch.append(" # ".join(beam_sentences))
     print("[DECODED BATCH]: ", decoded_batch)

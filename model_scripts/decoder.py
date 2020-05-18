@@ -56,7 +56,6 @@ class LuongDecoder(nn.Module):
         embedded = self.embedding_dropout(embedded)
         # hidden = (hidden[0].detach(), hidden[1].detach())
         lstm_out, hidden = self.lstm(embedded, hidden)
-        encoder_outputs = encoder_outputs.permute(1, 0, 2)
         alignment_scores = self.attention_model(lstm_out, encoder_outputs)
         attn_weights = F.softmax(alignment_scores, dim=1)
         context_vector = torch.bmm(attn_weights.unsqueeze(1), encoder_outputs)
