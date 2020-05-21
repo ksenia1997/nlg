@@ -3,7 +3,7 @@
 The main purpose of this thesis was to create a dialogue system, which is able to generate
 text in different styles and control the manifestation of each style.
 
-## Download from google cloud
+## Download from google drive
 ```
 wget --save-cookies cookies.txt 'https://docs.google.com/uc?export=download&id=FIELD' -O- | sed -rn 's/.*confirm=([0-9A-Za-z_]+).*/\1/p' > confirm.txt
 
