@@ -3,6 +3,10 @@
 The main purpose of this thesis was to create a dialogue system, which is able to generate
 text in different styles and control the manifestation of each style.
 
+## Datasets
+If there are no files in the directory **datasets**, download it from google drive 
+
+FIELD = 1mAmEuSBoJ1Q5iBA0ko-0Ia1oSDRFuTce
 ## Datasets processing
 Files **run_preparing_lm_data.py** and **run_preparing_seq2seq_data.py** prepare datasets for the model training.
 
