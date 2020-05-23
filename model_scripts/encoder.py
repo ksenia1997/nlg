@@ -22,6 +22,15 @@ class Encoder(nn.Module):
         self.dropout = nn.Dropout(self.dropout_rate).to(device)
 
     def forward(self, input_sequence, pad_token=None):
+        """
+
+        Args:
+            input_sequence: input sequence for the encoding
+            pad_token: index of the PAD token
+
+        Returns: encoded outputs, hidden state, cell
+
+        """
         use_padded = False
         if isinstance(input_sequence, tuple):
             use_padded = True

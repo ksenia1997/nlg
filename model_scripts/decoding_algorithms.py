@@ -9,6 +9,23 @@ from params import JOIN_TOKEN
 
 def greedy_decode(vocab, decoder, with_attention, trg_indexes, hidden, cell, enc_output, eos_token, device,
                   max_len=100):
+    """
+
+    Args:
+        vocab: vocabulary
+        decoder: decoder model
+        with_attention: bool value marking if decoder is with attention or not
+        trg_indexes: target indexes
+        hidden: hidden state
+        cell: cell state
+        enc_output: encoder output
+        eos_token: index of the EOS token
+        device: device
+        max_len: max length of the generated sequence
+
+    Returns: a generated sequence
+
+    """
     trg = []
     enc_output = enc_output.permute(1, 0, 2)
     decoder_h = (hidden, cell)
@@ -29,11 +46,11 @@ def greedy_decode(vocab, decoder, with_attention, trg_indexes, hidden, cell, enc
 class BeamSearchNode(object):
     def __init__(self, hidden_state, previous_node, word_ids, log_prob, length):
         '''
-        :param hiddenstate:
-        :param previousNode:
-        :param wordId:
-        :param logProb:
-        :param length:
+        :param hiddenstate: hidden state
+        :param previousNode: previous BeamSearchNode
+        :param wordId: indexes of the generated words
+        :param logProb: log probabilities of the generated words
+        :param length: length of the generated sequence
         '''
         self.h = hidden_state
         self.prev_node = previous_node
@@ -50,6 +67,26 @@ class BeamSearchNode(object):
 def beam_decode_mixed(vocab, beam_width, max_len, max_sentence_count, models, with_attention, lm_weights,
                       stylized_score_tensors, target_tensor, encoder_hiddens, encoder_outputs, sos_token, eos_token,
                       device):
+    """
+    Args:
+        vocab: vocabulary
+        beam_width: width of the beam
+        max_len: max length of a generated sequence
+        max_sentence_count: max sentence counter
+        models: array of the models for sequence generation
+        with_attention: a bool value, which indicated if the decoder is with attention or not
+        lm_weights: stylized weights for the language models
+        stylized_score_tensors: tensors for stylized generation
+        target_tensor: target tensor
+        encoder_hiddens: last hidden state from the encoder
+        encoder_outputs: encoder outputs
+        sos_token: index of the SOS token
+        eos_token: index of the EOS token
+        device: device
+
+    Returns: generated sequences
+
+    """
     # can be 1 or several decoders
     if len(models) != 1:
         assert len(models) == len(lm_weights), "Number of model decoders should be equal to the number of scores"

@@ -140,6 +140,19 @@ def evaluate(model, iterator, criterion):
 
 
 def fit_model(model, train_iter, valid_iter, n_epochs, clip, model_path):
+    """
+
+    Args:
+        model: the model for training
+        train_iter: train iterator
+        valid_iter: valid iterator
+        n_epochs: epochs number
+        clip: value for clipping
+        model_path: path to save best model
+
+    Returns: None
+
+    """
     model.apply(init_weights)
     optimizer = optim.Adam(model.parameters(), lr=0.0001)
     pad_idx = TEXT.vocab.stoi[TEXT.pad_token]
@@ -173,6 +186,20 @@ def fit_model(model, train_iter, valid_iter, n_epochs, clip, model_path):
 
 
 def test_model(nlp, example, vocab, config, models, stylized_score_tensors, weights):
+    """
+
+    Args:
+        nlp: tokenizer
+        example: example for testing a trained model
+        vocab: vocabulary
+        config: configuration
+        models: stylized models
+        stylized_score_tensors: stylized tensors for feature-based decoding
+        weights: stylized weights
+
+    Returns: the generated seuqence
+
+    """
     _, tokenized = tokenize(example, nlp)
     tokenized = [TEXT.init_token] + tokenized + [TEXT.eos_token]
     numericalized = [vocab.stoi[t] for t in tokenized]

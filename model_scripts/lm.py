@@ -18,6 +18,17 @@ class LM(nn.Module):
         self.tb = SummaryWriter(tensorboard_log_dir)
 
     def forward(self, trg, hidden=None, cell=None, teacher_forcing_ratio=0.5):
+        """
+
+        Args:
+            trg: target input
+            hidden: previous hidden state
+            cell: previous cell
+            teacher_forcing_ratio: teacher forcing ratio
+
+        Returns: generated outputs
+
+        """
         max_len, batch_size = trg[0].size()
         decoder_input = trg[0][0, :]
         outputs = torch.zeros(max_len, batch_size, self.decoder.output_dim).to(self.device)

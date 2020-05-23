@@ -107,6 +107,17 @@ def prepare_Twitter_data(nlp, filename):
 
 
 def prepare_Persona_chat(nlp, filename, context_pair_count, with_description):
+    """
+
+    Args:
+        nlp: tokenizer
+        filename: the name of the file
+        context_pair_count: number of the dialogue pair for the truncation
+        with_description: bool value, which indicates if the creating dataset will be with the persona description or not
+
+    Returns:
+
+    """
     train_data = []
     test_data = []
     valid_data = []
@@ -355,8 +366,8 @@ def prepare_lm_data(config):
     if (config["model_lm_type"] == 'GPT2' and not os.path.isfile(filename_train_jokes + "train_gpt2")) or (
             config["model_lm_type"] == 'LSTM' and not os.path.isfile(filename_train_jokes + "train.csv")):
         train_data_jokes, valid_data_jokes = prepare_joke_dataset(nlp, DATASETS_PATH + 'reddit_jokes.json',
-                                                DATASETS_PATH + 'stupidstuff.json',
-                                                DATASETS_PATH + 'wocka.json')
+                                                                  DATASETS_PATH + 'stupidstuff.json',
+                                                                  DATASETS_PATH + 'wocka.json')
         if config["model_lm_type"] == 'GPT2':
             save_data_for_GPT2(filename_train_jokes + "train_gpt2", train_data_jokes)
         elif config["model_lm_type"] == "LSTM":

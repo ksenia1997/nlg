@@ -31,8 +31,16 @@ class Seq2Seq(nn.Module):
         self.tb = SummaryWriter(tensorboard_log_dir)
 
     def forward(self, src, trg, pad_token):
-        # src [seq_len, batch_size]
-        # trg [seq_len, batch_size]
+        """
+
+        Args:
+            src: source input, [seq_len, batch_size]
+            trg: target input, [seq_len, batch_size]
+            pad_token: index of the PAD token
+
+        Returns: generated seuqence
+
+        """
 
         max_len, batch_size = trg[0].size()
         outputs = torch.zeros(max_len, batch_size, self.decoder.output_dim).to(self.device)

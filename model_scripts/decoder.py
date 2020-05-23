@@ -23,6 +23,16 @@ class Decoder(nn.Module):
         self.log_softmax = nn.LogSoftmax(dim=1)
 
     def forward(self, inputs, hidden=None, cell=None):
+        """
+
+        Args:
+            inputs: generating input by the decoder
+            hidden: previous hidden state
+            cell: precious cell
+
+        Returns: generated output, hidden and cell
+
+        """
         inputs = inputs.unsqueeze(0)
         # inputs [1,batch_size]
         embedded = self.embedder(inputs).to(self.device)
@@ -51,6 +61,16 @@ class LuongDecoder(nn.Module):
         self.classifier = nn.Linear(self.hidden_dim * 2, self.output_dim)
 
     def forward(self, input_seq, hidden, encoder_outputs):
+        """
+
+        Args:
+            input_seq: generating input sequence
+            hidden: previous hidden state
+            encoder_outputs: encoder outputs
+
+        Returns: generating output, hidden state and attention weights
+
+        """
         # Embed input words
         embedded = self.embedding(input_seq).unsqueeze(0)
         embedded = self.embedding_dropout(embedded)
@@ -79,7 +99,15 @@ class Attention(nn.Module):
             self.weight = nn.Parameter(torch.FloatTensor(self.hidden_size))
 
     def forward(self, decoder_hidden, encoder_outputs):
+        """
 
+        Args:
+            decoder_hidden: hidden state from the decoder
+            encoder_outputs: encoder outputs
+
+        Returns: returned weighted sum depending on the chosen attention method
+
+        """
         decoder_hidden = decoder_hidden.permute(1, 0, 2)
         if self.method == "dot":
             # For the dot scoring method, no weights or linear layers are involved
